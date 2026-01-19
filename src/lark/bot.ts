@@ -172,3 +172,61 @@ ${comment ? `**コメント**: ${comment}` : ''}
     });
   }
 }
+
+// シングルトンインスタンス
+let botInstance: LarkBot | null = null;
+
+function getBot(): LarkBot {
+  if (!botInstance) {
+    botInstance = new LarkBot();
+  }
+  return botInstance;
+}
+
+// ヘルパー関数（簡易版）
+export async function sendApprovalNotification(
+  larkUserId: string,
+  options: {
+    requestId: string;
+    requestTitle: string;
+    applicantName: string;
+    stepLabel: string;
+  }
+): Promise<void> {
+  const bot = getBot();
+  await bot.sendMessage(larkUserId, {
+    title: '📋 承認依頼',
+    text: `**${options.applicantName}** さんから承認依頼が届きました。
+
+**件名**: ${options.requestTitle}
+**ステップ**: ${options.stepLabel}
+
+内容を確認し、承認または却下してください。`,
+  });
+}
+
+export async function sendRequestStatusNotification(
+  larkUserId: string,
+  options: {
+    requestId: string;
+    requestTitle: string;
+    status: 'approved' | 'rejected' | 'remanded';
+    comment?: string;
+  }
+): Promise<void> {
+  const bot = getBot();
+
+  const statusMap = {
+    approved: { title: '✅ 承認完了', text: '承認されました' },
+    rejected: { title: '❌ 申請却下', text: '却下されました' },
+    remanded: { title: '↩️ 差戻し', text: '差し戻されました' },
+  };
+
+  const { title, text } = statusMap[options.status];
+  const commentText = options.comment ? `\n\n**コメント**: ${options.comment}` : '';
+
+  await bot.sendMessage(larkUserId, {
+    title,
+    text: `申請「**${options.requestTitle}**」が${text}。${commentText}`,
+  });
+}

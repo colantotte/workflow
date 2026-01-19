@@ -33,10 +33,10 @@ export type SkipReason = z.infer<typeof SkipReason>;
 
 // 申請
 export const RequestSchema = z.object({
-  id: z.string().uuid(),
-  workflowId: z.string().uuid(),
-  applicantId: z.string().uuid(),
-  applicantOrganizationId: z.string().uuid(), // 申請時の所属組織
+  id: z.string(),
+  workflowId: z.string(),
+  applicantId: z.string(),
+  applicantOrganizationId: z.string(), // 申請時の所属組織（組織コード）
   title: z.string().min(1).max(200),
   content: z.record(z.unknown()),             // 申請内容（JSON）
   status: RequestStatus,
@@ -66,10 +66,10 @@ export type CreateRequest = z.infer<typeof CreateRequestSchema>;
 
 // 承認履歴
 export const ApprovalHistorySchema = z.object({
-  id: z.string().uuid(),
-  requestId: z.string().uuid(),
+  id: z.string(),
+  requestId: z.string(),
   stepOrder: z.number().int(),
-  approverId: z.string().uuid().nullable(),   // スキップ時はnull
+  approverId: z.string().nullable(),   // スキップ時はnull
   action: ApprovalAction,
   comment: z.string().max(1000).nullable(),
   skipReason: SkipReason.nullable(),
