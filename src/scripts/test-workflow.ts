@@ -19,14 +19,14 @@ const LARK_BASE_APP_TOKEN = process.env.LARK_BASE_APP_TOKEN ?? '';
 
 // テーブルID
 const TABLES = {
-  organizations: 'tblfZBzTy2zeZ4qd',
-  positions: 'tblGwXV8PjL0ktRJ',
-  approvalRoles: 'tblaniU0n3e5rt5z',
-  users: 'tblOldYxIw0Yjix6',
-  userPositions: 'tblFGW04ht3CGmYS',
-  userApprovalRoles: 'tblOv1swrQozXeYE',
-  workflowDefinitions: 'tblGiasaWTLXNz8X',
-  approvalSteps: 'tblHyT4FKo50BG07',
+  organizations: 'tblCnyU5rDlwsFCd',
+  positions: 'tblvNSExDwSQLTl4',
+  approvalRoles: 'tblexuWyCZJQVsUt',
+  users: 'tblKjUDl9ysBlZot',
+  userPositions: 'tblGSAYD0p99ZpEf',
+  userApprovalRoles: 'tblbHimZpnz1tKzB',
+  workflowDefinitions: 'tbloV9BwBTySxhzp',
+  approvalSteps: 'tbls8HxUObebzsFl',
 };
 
 // Lark BaseからデータをロードするDataStore実装

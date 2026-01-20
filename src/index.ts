@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
@@ -36,14 +37,12 @@ app.use(
   })
 );
 
-// ルートパス
-app.get('/', (c) => {
-  return c.json({
-    name: 'Lark Workflow API',
-    version: '0.1.0',
-    description: 'Lark Base Approval Workflow System',
-  });
-});
+// 静的ファイル配信
+app.use('/styles.css', serveStatic({ path: './public/styles.css' }));
+app.use('/app.js', serveStatic({ path: './public/app.js' }));
+
+// ルートパス - フロントエンドを返す
+app.get('/', serveStatic({ path: './public/index.html' }));
 
 // APIルート
 app.route('/api', api);

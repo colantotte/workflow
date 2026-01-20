@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>承認ワークフロー</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="header">
+    <h1>承認ワークフロー</h1>
+    <div class="user-info" id="userInfo">
+      <select id="userSelect" onchange="switchUser()">
+        <option value="">ユーザーを選択...</option>
+      </select>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="requests">申請一覧</button>
+    <button class="tab" data-tab="approvals">承認待ち</button>
+    <button class="tab" data-tab="workflows">ワークフロー</button>
+  </nav>
+
+  <main class="main">
+    <!-- 申請一覧タブ -->
+    <section id="requests" class="tab-content active">
+      <div class="section-header">
+        <h2>申請一覧</h2>
+        <button class="btn btn-primary" onclick="showNewRequestModal()">+ 新規申請</button>
+      </div>
+      <div class="filters">
+        <select id="requestStatusFilter" onchange="loadRequests()">
+          <option value="">すべてのステータス</option>
+          <option value="draft">下書き</option>
+          <option value="pending">承認待ち</option>
+          <option value="approved">承認完了</option>
+          <option value="rejected">却下</option>
+          <option value="remanded">差戻し</option>
+        </select>
+      </div>
+      <div id="requestsList" class="list"></div>
+    </section>
+
+    <!-- 承認待ちタブ -->
+    <section id="approvals" class="tab-content">
+      <div class="section-header">
+        <h2>承認待ち</h2>
+      </div>
+      <div id="approvalsList" class="list"></div>
+    </section>
+
+    <!-- ワークフロータブ -->
+    <section id="workflows" class="tab-content">
+      <div class="section-header">
+        <h2>ワークフロー一覧</h2>
+      </div>
+      <div id="workflowsList" class="list"></div>
+    </section>
+  </main>
+
+  <!-- 新規申請モーダル -->
+  <div id="newRequestModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>新規申請</h3>
+        <button class="close" onclick="closeModal('newRequestModal')">&times;</button>
+      </div>
+      <form id="newRequestForm" onsubmit="createRequest(event)">
+        <div class="form-group">
+          <label for="workflowSelect">ワークフロー</label>
+          <select id="workflowSelect" required onchange="onWorkflowSelect()">
+            <option value="">選択してください</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="requestTitle">件名</label>
+          <input type="text" id="requestTitle" required maxlength="200" placeholder="申請の件名を入力">
+        </div>
+        <div class="form-group">
+          <label for="requestContent">内容</label>
+          <textarea id="requestContent" rows="5" placeholder="申請内容を入力"></textarea>
+        </div>
+        <div id="approvalRoutePreview" class="route-preview" style="display:none;">
+          <h4>承認ルート（プレビュー）</h4>
+          <div id="routeSteps"></div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" onclick="closeModal('newRequestModal')">キャンセル</button>
+          <button type="submit" class="btn btn-secondary" name="action" value="draft">下書き保存</button>
+          <button type="submit" class="btn btn-primary" name="action" value="submit">提出</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 申請詳細モーダル -->
+  <div id="requestDetailModal" class="modal">
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3 id="detailTitle">申請詳細</h3>
+        <button class="close" onclick="closeModal('requestDetailModal')">&times;</button>
+      </div>
+      <div id="requestDetail"></div>
+    </div>
+  </div>
+
+  <!-- 承認アクションモーダル -->
+  <div id="approvalActionModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="approvalActionTitle">承認アクション</h3>
+        <button class="close" onclick="closeModal('approvalActionModal')">&times;</button>
+      </div>
+      <form id="approvalActionForm" onsubmit="submitApprovalAction(event)">
+        <input type="hidden" id="actionRequestId">
+        <input type="hidden" id="actionType">
+        <div class="form-group">
+          <label for="actionComment">コメント</label>
+          <textarea id="actionComment" rows="3" placeholder="コメントを入力（任意）"></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" onclick="closeModal('approvalActionModal')">キャンセル</button>
+          <button type="submit" class="btn btn-primary" id="actionSubmitBtn">実行</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

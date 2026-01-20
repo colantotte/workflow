@@ -6,21 +6,26 @@ import {
   CreateUserPositionSchema,
   CreateUserApprovalRoleSchema,
 } from '../models/index.js';
+import { getRepository } from '../repositories/lark-base.repository.js';
 
 export const userRoutes = new Hono();
 
 // ユーザー一覧取得
 userRoutes.get('/', async (c) => {
-  const query = c.req.query();
-  // TODO: Lark Baseから取得
-  return c.json({ users: [], total: 0 });
+  const repo = getRepository();
+  const users = await repo.listUsers();
+  return c.json({ users, total: users.length });
 });
 
 // ユーザー詳細取得（役職・承認ロール含む）
 userRoutes.get('/:id', async (c) => {
   const id = c.req.param('id');
-  // TODO: Lark Baseから取得
-  return c.json({ user: null });
+  const repo = getRepository();
+  const user = await repo.getUser(id);
+  if (!user) {
+    return c.json({ error: 'User not found' }, 404);
+  }
+  return c.json({ user });
 });
 
 // ユーザー作成

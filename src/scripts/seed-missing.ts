@@ -6,10 +6,10 @@ const LARK_APP_SECRET = process.env.LARK_APP_SECRET ?? '';
 const LARK_BASE_APP_TOKEN = process.env.LARK_BASE_APP_TOKEN ?? '';
 
 const TABLES = {
-  userPositions: 'tblFGW04ht3CGmYS',
-  userApprovalRoles: 'tblOv1swrQozXeYE',
-  workflowDefinitions: 'tblGiasaWTLXNz8X',
-  approvalSteps: 'tblHyT4FKo50BG07',
+  userPositions: 'tblGSAYD0p99ZpEf',
+  userApprovalRoles: 'tblbHimZpnz1tKzB',
+  workflowDefinitions: 'tbloV9BwBTySxhzp',
+  approvalSteps: 'tbls8HxUObebzsFl',
 };
 
 // 2024-01-01 00:00:00 UTC のUnixタイムスタンプ（ミリ秒）

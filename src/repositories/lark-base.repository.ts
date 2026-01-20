@@ -15,16 +15,16 @@ import type {
 
 // テーブルID設定
 const TABLES = {
-  organizations: process.env.LARK_TABLE_ORGANIZATIONS ?? 'tblfZBzTy2zeZ4qd',
-  positions: process.env.LARK_TABLE_POSITIONS ?? 'tblGwXV8PjL0ktRJ',
-  approvalRoles: process.env.LARK_TABLE_APPROVAL_ROLES ?? 'tblaniU0n3e5rt5z',
-  users: process.env.LARK_TABLE_USERS ?? 'tblOldYxIw0Yjix6',
-  userPositions: process.env.LARK_TABLE_USER_POSITIONS ?? 'tblFGW04ht3CGmYS',
-  userApprovalRoles: process.env.LARK_TABLE_USER_APPROVAL_ROLES ?? 'tblOv1swrQozXeYE',
-  workflowDefinitions: process.env.LARK_TABLE_WORKFLOWS ?? 'tblGiasaWTLXNz8X',
-  approvalSteps: process.env.LARK_TABLE_APPROVAL_STEPS ?? 'tblHyT4FKo50BG07',
-  requests: process.env.LARK_TABLE_REQUESTS ?? 'tblhuVTQM8UIlJ69',
-  approvalHistory: process.env.LARK_TABLE_APPROVAL_HISTORY ?? 'tbl1J1OAXYdDKoYg',
+  organizations: process.env.LARK_TABLE_ORGANIZATIONS ?? 'tblCnyU5rDlwsFCd',
+  positions: process.env.LARK_TABLE_POSITIONS ?? 'tblvNSExDwSQLTl4',
+  approvalRoles: process.env.LARK_TABLE_APPROVAL_ROLES ?? 'tblexuWyCZJQVsUt',
+  users: process.env.LARK_TABLE_USERS ?? 'tblKjUDl9ysBlZot',
+  userPositions: process.env.LARK_TABLE_USER_POSITIONS ?? 'tblGSAYD0p99ZpEf',
+  userApprovalRoles: process.env.LARK_TABLE_USER_APPROVAL_ROLES ?? 'tblbHimZpnz1tKzB',
+  workflowDefinitions: process.env.LARK_TABLE_WORKFLOWS ?? 'tbloV9BwBTySxhzp',
+  approvalSteps: process.env.LARK_TABLE_APPROVAL_STEPS ?? 'tbls8HxUObebzsFl',
+  requests: process.env.LARK_TABLE_REQUESTS ?? 'tblU94oqwhezq03A',
+  approvalHistory: process.env.LARK_TABLE_APPROVAL_HISTORY ?? 'tblkIFM69oDD8nqY',
 };
 
 export class LarkBaseRepository {
