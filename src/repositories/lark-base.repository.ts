@@ -294,8 +294,8 @@ export class LarkBaseRepository {
   }
 
   // カテゴリ別のフォームスキーマ定義
-  private getFormSchemaByCategory(category: string) {
-    const schemas: Record<string, unknown> = {
+  private getFormSchemaByCategory(category: string): WorkflowDefinition['formSchema'] {
+    const schemas: Record<string, WorkflowDefinition['formSchema']> = {
       '経費精算': {
         fields: [
           { name: 'amount', label: '金額', type: 'number', required: true, placeholder: '金額を入力', validation: { min: 1 } },

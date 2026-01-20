@@ -11,7 +11,13 @@
     "test": "vitest",
     "test:run": "vitest run",
     "lint": "eslint src --ext .ts",
-    "format": "prettier --write src/**/*.ts"
+    "format": "prettier --write src/**/*.ts",
+    "docker:build": "docker build -t workflow-api .",
+    "docker:run": "docker run -p 8080:8080 --env-file .env workflow-api",
+    "deploy": "gcloud builds submit --config cloudbuild.yaml",
+    "seed": "tsx src/scripts/seed-data.ts",
+    "test:workflow": "tsx src/scripts/test-workflow.ts",
+    "test:notification": "tsx src/scripts/test-notification.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.1",

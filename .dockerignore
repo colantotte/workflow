@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.gitignore
+.env
+.env.local
+*.md
+*.log
+.claude
+.github
+src/__tests__
+vitest.config.ts
