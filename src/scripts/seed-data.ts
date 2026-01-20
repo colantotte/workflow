@@ -78,10 +78,27 @@ const USER_APPROVAL_ROLES = [
   { user_id: 'user_president', approval_role_name: '取締役決裁', target_organization_code: '', valid_from: '2024-01-01' },
 ];
 
+// 経費精算フォーム
+const EXPENSE_FORM_SCHEMA = {
+  fields: [
+    { name: 'amount', label: '金額', type: 'number', required: true, placeholder: '金額を入力', validation: { min: 1 } },
+    { name: 'expenseDate', label: '支出日', type: 'date', required: true },
+    { name: 'category', label: '経費区分', type: 'select', required: true, options: [
+      { value: 'travel', label: '交通費' },
+      { value: 'entertainment', label: '交際費' },
+      { value: 'supplies', label: '消耗品費' },
+      { value: 'communication', label: '通信費' },
+      { value: 'other', label: 'その他' },
+    ]},
+    { name: 'description', label: '内容・目的', type: 'textarea', required: true, placeholder: '経費の内容と目的を入力' },
+    { name: 'receipt', label: '領収書添付', type: 'checkbox', required: false },
+  ],
+};
+
 // ワークフロー定義
 const WORKFLOWS = [
-  { name: '経費精算（10万円未満）', description: '10万円未満の経費精算', category: '経費精算', is_active: true },
-  { name: '経費精算（10万円以上）', description: '10万円以上の経費精算（取締役決裁）', category: '経費精算', is_active: true },
+  { name: '経費精算（10万円未満）', description: '10万円未満の経費精算', category: '経費精算', form_schema: JSON.stringify(EXPENSE_FORM_SCHEMA), is_active: true },
+  { name: '経費精算（10万円以上）', description: '10万円以上の経費精算（取締役決裁）', category: '経費精算', form_schema: JSON.stringify(EXPENSE_FORM_SCHEMA), is_active: true },
 ];
 
 // 承認ステップ（workflow_nameはプレースホルダー、実行時にworkflow_idに変換）

@@ -37,7 +37,7 @@ export class LarkBaseRepository {
   // ==================== 組織 ====================
   async listOrganizations(): Promise<Organization[]> {
     const records = await this.client.getAllRecords(TABLES.organizations);
-    return records.map(this.mapOrganization);
+    return records.map((r) => this.mapOrganization(r));
   }
 
   async getOrganization(id: string): Promise<Organization | null> {
@@ -62,7 +62,7 @@ export class LarkBaseRepository {
   // ==================== 役職 ====================
   async listPositions(): Promise<Position[]> {
     const records = await this.client.getAllRecords(TABLES.positions);
-    return records.map(this.mapPosition);
+    return records.map((r) => this.mapPosition(r));
   }
 
   async getPosition(id: string): Promise<Position | null> {
@@ -85,7 +85,7 @@ export class LarkBaseRepository {
   // ==================== 承認ロール ====================
   async listApprovalRoles(): Promise<ApprovalRole[]> {
     const records = await this.client.getAllRecords(TABLES.approvalRoles);
-    return records.map(this.mapApprovalRole);
+    return records.map((r) => this.mapApprovalRole(r));
   }
 
   async getApprovalRole(id: string): Promise<ApprovalRole | null> {
@@ -108,7 +108,7 @@ export class LarkBaseRepository {
   // ==================== ユーザー ====================
   async listUsers(): Promise<User[]> {
     const records = await this.client.getAllRecords(TABLES.users);
-    return records.map(this.mapUser);
+    return records.map((r) => this.mapUser(r));
   }
 
   async getUser(id: string): Promise<User | null> {
@@ -220,7 +220,7 @@ export class LarkBaseRepository {
     if (category) {
       filtered = records.filter((r) => r.fields.category === category);
     }
-    return filtered.map(this.mapWorkflowDefinition);
+    return filtered.map((r) => this.mapWorkflowDefinition(r));
   }
 
   async getWorkflow(id: string): Promise<WorkflowDefinition | null> {
@@ -241,12 +241,14 @@ export class LarkBaseRepository {
     name: string;
     description?: string;
     category?: string;
+    formSchema?: unknown;
     isActive?: boolean;
   }): Promise<WorkflowDefinition> {
     const record = await this.client.createRecord(TABLES.workflowDefinitions, {
       name: data.name,
       description: data.description ?? '',
       category: data.category ?? '',
+      form_schema: data.formSchema ? JSON.stringify(data.formSchema) : '',
       is_active: data.isActive ?? true,
     });
     return this.mapWorkflowDefinition(record);
@@ -276,15 +278,63 @@ export class LarkBaseRepository {
   }
 
   private mapWorkflowDefinition(record: LarkBaseRecord): WorkflowDefinition {
+    const category = String(record.fields.category ?? '');
+    const formSchema = this.getFormSchemaByCategory(category);
+
     return {
       id: record.record_id!,
       name: String(record.fields.name ?? ''),
       description: String(record.fields.description ?? ''),
-      category: String(record.fields.category ?? ''),
+      category,
+      formSchema,
       isActive: Boolean(record.fields.is_active),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
+  }
+
+  // カテゴリ別のフォームスキーマ定義
+  private getFormSchemaByCategory(category: string) {
+    const schemas: Record<string, unknown> = {
+      '経費精算': {
+        fields: [
+          { name: 'amount', label: '金額', type: 'number', required: true, placeholder: '金額を入力', validation: { min: 1 } },
+          { name: 'expenseDate', label: '支出日', type: 'date', required: true },
+          { name: 'category', label: '経費区分', type: 'select', required: true, options: [
+            { value: 'travel', label: '交通費' },
+            { value: 'entertainment', label: '交際費' },
+            { value: 'supplies', label: '消耗品費' },
+            { value: 'communication', label: '通信費' },
+            { value: 'other', label: 'その他' },
+          ]},
+          { name: 'description', label: '内容・目的', type: 'textarea', required: true, placeholder: '経費の内容と目的を入力' },
+          { name: 'receipt', label: '領収書添付', type: 'checkbox', required: false },
+        ],
+      },
+      '休暇申請': {
+        fields: [
+          { name: 'leaveType', label: '休暇種別', type: 'select', required: true, options: [
+            { value: 'paid', label: '有給休暇' },
+            { value: 'special', label: '特別休暇' },
+            { value: 'substitute', label: '代休' },
+            { value: 'unpaid', label: '欠勤' },
+          ]},
+          { name: 'startDate', label: '開始日', type: 'date', required: true },
+          { name: 'endDate', label: '終了日', type: 'date', required: true },
+          { name: 'reason', label: '理由', type: 'textarea', required: false, placeholder: '休暇の理由（任意）' },
+        ],
+      },
+      '稟議': {
+        fields: [
+          { name: 'amount', label: '金額', type: 'number', required: true, placeholder: '金額を入力' },
+          { name: 'purpose', label: '目的', type: 'text', required: true, placeholder: '稟議の目的を入力' },
+          { name: 'detail', label: '詳細', type: 'textarea', required: true, placeholder: '稟議の詳細を入力' },
+          { name: 'deadline', label: '希望期日', type: 'date', required: false },
+        ],
+      },
+    };
+
+    return schemas[category] || null;
   }
 
   // ==================== 承認ステップ ====================
@@ -292,7 +342,7 @@ export class LarkBaseRepository {
     const records = await this.client.getAllRecords(TABLES.approvalSteps);
     return records
       .filter((r) => r.fields.workflow_id === workflowId)
-      .map(this.mapApprovalStep)
+      .map((r) => this.mapApprovalStep(r))
       .sort((a, b) => a.stepOrder - b.stepOrder);
   }
 
@@ -380,7 +430,7 @@ export class LarkBaseRepository {
       filtered = filtered.filter((r) => r.fields.workflow_id === options.workflowId);
     }
 
-    return filtered.map(this.mapRequest);
+    return filtered.map((r) => this.mapRequest(r));
   }
 
   async getRequest(id: string): Promise<Request | null> {
@@ -460,7 +510,7 @@ export class LarkBaseRepository {
     const records = await this.client.getAllRecords(TABLES.approvalHistory);
     return records
       .filter((r) => r.fields.request_id === requestId)
-      .map(this.mapApprovalHistory)
+      .map((r) => this.mapApprovalHistory(r))
       .sort((a, b) => a.stepOrder - b.stepOrder);
   }
 

@@ -169,11 +169,22 @@ class LarkBaseDataStore implements DataStore {
     // ワークフロー定義
     const workflows = await this.baseClient.getAllRecords(TABLES.workflowDefinitions);
     for (const wf of workflows) {
+      let formSchema = null;
+      try {
+        const raw = wf.fields.form_schema;
+        if (raw && typeof raw === 'string') {
+          formSchema = JSON.parse(raw);
+        }
+      } catch {
+        formSchema = null;
+      }
+
       const workflow: WorkflowWithSteps = {
         id: wf.record_id!,
         name: String(wf.fields.name ?? ''),
         description: String(wf.fields.description ?? ''),
         category: String(wf.fields.category ?? ''),
+        formSchema,
         isActive: Boolean(wf.fields.is_active),
         createdAt: new Date(),
         updatedAt: new Date(),

@@ -163,6 +163,7 @@ describe('ApprovalService', () => {
         description: '',
         category: 'テスト',
         isActive: true,
+        formSchema: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         steps: [
@@ -223,6 +224,7 @@ describe('ApprovalService', () => {
         description: '',
         category: 'テスト',
         isActive: true,
+        formSchema: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         steps: [
@@ -318,6 +320,7 @@ describe('ApprovalService', () => {
         description: '',
         category: 'テスト',
         isActive: true,
+        formSchema: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         steps: [

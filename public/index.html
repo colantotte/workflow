@@ -74,12 +74,11 @@
           </select>
         </div>
         <div class="form-group">
-          <label for="requestTitle">件名</label>
+          <label for="requestTitle">件名 <span style="color: var(--danger);">*</span></label>
           <input type="text" id="requestTitle" required maxlength="200" placeholder="申請の件名を入力">
         </div>
-        <div class="form-group">
-          <label for="requestContent">内容</label>
-          <textarea id="requestContent" rows="5" placeholder="申請内容を入力"></textarea>
+        <div id="dynamicFormFields">
+          <!-- Dynamic form fields will be rendered here -->
         </div>
         <div id="approvalRoutePreview" class="route-preview" style="display:none;">
           <h4>承認ルート（プレビュー）</h4>

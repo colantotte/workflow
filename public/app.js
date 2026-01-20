@@ -325,20 +325,34 @@ function showNewRequestModal() {
   showModal('newRequestModal');
 }
 
+// Current workflow form schema
+let currentFormSchema = null;
+
 async function onWorkflowSelect() {
   const workflowId = document.getElementById('workflowSelect').value;
   const preview = document.getElementById('approvalRoutePreview');
+  const dynamicFields = document.getElementById('dynamicFormFields');
 
   if (!workflowId) {
     preview.style.display = 'none';
+    if (dynamicFields) dynamicFields.innerHTML = '';
+    currentFormSchema = null;
     return;
   }
 
   try {
     const res = await fetch(`${API_BASE}/workflows/${workflowId}`);
     const data = await res.json();
-    const steps = data.workflow.steps || [];
+    const workflow = data.workflow;
+    const steps = workflow.steps || [];
 
+    // Render dynamic form fields
+    currentFormSchema = workflow.formSchema;
+    if (dynamicFields) {
+      dynamicFields.innerHTML = renderFormFields(workflow.formSchema);
+    }
+
+    // Render approval route preview
     if (steps.length > 0) {
       document.getElementById('routeSteps').innerHTML = steps.map((step, index) => `
         <div class="route-step">
@@ -355,7 +369,117 @@ async function onWorkflowSelect() {
     }
   } catch (err) {
     preview.style.display = 'none';
+    currentFormSchema = null;
   }
+}
+
+// Render dynamic form fields from schema
+function renderFormFields(formSchema) {
+  if (!formSchema || !formSchema.fields || formSchema.fields.length === 0) {
+    return '';
+  }
+
+  return formSchema.fields.map(field => {
+    const required = field.required ? 'required' : '';
+    const requiredMark = field.required ? '<span style="color: var(--danger);">*</span>' : '';
+
+    switch (field.type) {
+      case 'text':
+        return `
+          <div class="form-group">
+            <label for="field_${field.name}">${escapeHtml(field.label)} ${requiredMark}</label>
+            <input type="text" id="field_${field.name}" name="${field.name}"
+              placeholder="${escapeHtml(field.placeholder || '')}"
+              ${field.validation?.max ? `maxlength="${field.validation.max}"` : ''}
+              ${required}>
+          </div>
+        `;
+
+      case 'number':
+        return `
+          <div class="form-group">
+            <label for="field_${field.name}">${escapeHtml(field.label)} ${requiredMark}</label>
+            <input type="number" id="field_${field.name}" name="${field.name}"
+              placeholder="${escapeHtml(field.placeholder || '')}"
+              ${field.validation?.min !== undefined ? `min="${field.validation.min}"` : ''}
+              ${field.validation?.max !== undefined ? `max="${field.validation.max}"` : ''}
+              ${required}>
+          </div>
+        `;
+
+      case 'date':
+        return `
+          <div class="form-group">
+            <label for="field_${field.name}">${escapeHtml(field.label)} ${requiredMark}</label>
+            <input type="date" id="field_${field.name}" name="${field.name}" ${required}>
+          </div>
+        `;
+
+      case 'select':
+        const options = (field.options || []).map(opt =>
+          `<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`
+        ).join('');
+        return `
+          <div class="form-group">
+            <label for="field_${field.name}">${escapeHtml(field.label)} ${requiredMark}</label>
+            <select id="field_${field.name}" name="${field.name}" ${required}>
+              <option value="">選択してください</option>
+              ${options}
+            </select>
+          </div>
+        `;
+
+      case 'textarea':
+        return `
+          <div class="form-group">
+            <label for="field_${field.name}">${escapeHtml(field.label)} ${requiredMark}</label>
+            <textarea id="field_${field.name}" name="${field.name}" rows="3"
+              placeholder="${escapeHtml(field.placeholder || '')}"
+              ${field.validation?.max ? `maxlength="${field.validation.max}"` : ''}
+              ${required}></textarea>
+          </div>
+        `;
+
+      case 'checkbox':
+        return `
+          <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 8px;">
+              <input type="checkbox" id="field_${field.name}" name="${field.name}">
+              ${escapeHtml(field.label)}
+            </label>
+          </div>
+        `;
+
+      default:
+        return '';
+    }
+  }).join('');
+}
+
+// Collect form data from dynamic fields
+function collectFormData() {
+  if (!currentFormSchema || !currentFormSchema.fields) {
+    return {};
+  }
+
+  const data = {};
+  currentFormSchema.fields.forEach(field => {
+    const element = document.getElementById(`field_${field.name}`);
+    if (!element) return;
+
+    switch (field.type) {
+      case 'checkbox':
+        data[field.name] = element.checked;
+        break;
+      case 'number':
+        data[field.name] = element.value ? Number(element.value) : null;
+        break;
+      default:
+        data[field.name] = element.value || null;
+    }
+  });
+
+  return data;
 }
 
 async function createRequest(event) {
@@ -367,12 +491,14 @@ async function createRequest(event) {
 
   const workflowId = document.getElementById('workflowSelect').value;
   const title = document.getElementById('requestTitle').value;
-  const content = document.getElementById('requestContent').value;
 
   if (!workflowId || !title) {
     alert('ワークフローと件名は必須です');
     return;
   }
+
+  // Collect dynamic form data
+  const formData = collectFormData();
 
   try {
     // Create request
@@ -382,9 +508,9 @@ async function createRequest(event) {
       body: JSON.stringify({
         workflowId,
         applicantId: currentUser.id,
-        applicantOrganizationId: currentUser.organizationId || 'ORG001',
+        applicantOrganizationId: currentUser.organizationId || 'SALES1-1',
         title,
-        content: { description: content }
+        content: formData
       })
     });
 
