@@ -82,6 +82,12 @@ out
 .nuxt
 dist
 
+# Vercel api compiled files (Vercel compiles these automatically)
+api/*.js
+api/*.js.map
+api/*.d.ts
+api/*.d.ts.map
+
 # Gatsby files
 .cache/
 # Comment in the public line in if your project uses Gatsby and not Next.js
