@@ -2,8 +2,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import 'dotenv/config';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { api } from '../dist/routes/index.js';
-import { initLarkClient } from '../dist/lark/client.js';
+import { api } from '../src/routes/index.js';
+import { initLarkClient } from '../src/lark/client.js';
 
 // 環境変数
 const LARK_APP_ID = process.env.LARK_APP_ID ?? '';

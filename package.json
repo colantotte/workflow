@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "build:vercel": "tsc",
+    "build:vercel": "tsc && esbuild api/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=api/index.js --external:@vercel/node",
     "start": "node dist/index.js",
     "deploy:firebase": "firebase deploy",
     "test": "vitest",
@@ -36,6 +36,7 @@
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@vercel/node": "^5.5.26",
+    "esbuild": "^0.27.2",
     "eslint": "^9.17.0",
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",
