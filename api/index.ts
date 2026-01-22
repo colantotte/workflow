@@ -1,6 +1,6 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import 'dotenv/config';
 import { Hono } from 'hono';
-import { handle } from 'hono/vercel';
 import { cors } from 'hono/cors';
 import { api } from '../dist/routes/index.js';
 import { initLarkClient } from '../dist/lark/client.js';
@@ -44,5 +44,25 @@ app.notFound((c) => {
   return c.json({ error: 'Not Found' }, 404);
 });
 
-// Vercel用エクスポート
-export default handle(app);
+// Vercel Serverless Function handler
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const url = new URL(req.url || '/', `http://${req.headers.host}`);
+
+  const request = new Request(url.toString(), {
+    method: req.method,
+    headers: req.headers as HeadersInit,
+    body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined,
+  });
+
+  const response = await app.fetch(request);
+
+  // Set response headers
+  response.headers.forEach((value, key) => {
+    res.setHeader(key, value);
+  });
+
+  res.status(response.status);
+
+  const body = await response.text();
+  res.send(body);
+}
