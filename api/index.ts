@@ -2,8 +2,8 @@ import 'dotenv/config';
 import { Hono } from 'hono';
 import { handle } from 'hono/vercel';
 import { cors } from 'hono/cors';
-import { api } from '../src/routes/index.js';
-import { initLarkClient } from '../src/lark/client.js';
+import { api } from '../dist/routes/index.js';
+import { initLarkClient } from '../dist/lark/client.js';
 
 // 環境変数
 const LARK_APP_ID = process.env.LARK_APP_ID ?? '';
