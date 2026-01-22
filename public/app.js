@@ -2,16 +2,103 @@
 let currentUser = null;
 let users = [];
 let workflows = [];
+let larkUser = null;
+let isLarkEnvironment = false;
 
 // API Base URL
 const API_BASE = '/api';
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   initTabs();
-  loadUsers();
+
+  // Check if running inside Lark
+  if (window.h5sdk) {
+    await initLarkSDK();
+  } else {
+    // Not in Lark - show user selector for development
+    console.log('Not running in Lark environment');
+    loadUsers();
+  }
+
   loadWorkflows();
 });
+
+// Initialize Lark SDK
+async function initLarkSDK() {
+  try {
+    // Get Lark SDK ready
+    await new Promise((resolve, reject) => {
+      window.h5sdk.ready({
+        success: resolve,
+        fail: reject,
+      });
+    });
+
+    isLarkEnvironment = true;
+    console.log('Lark SDK initialized');
+
+    // Get user info
+    const userInfo = await new Promise((resolve, reject) => {
+      window.h5sdk.biz.contact.getUserInfo({
+        success: resolve,
+        fail: reject,
+      });
+    });
+
+    larkUser = userInfo;
+    console.log('Lark user:', larkUser);
+
+    // Hide user selector and show Lark user info
+    const userInfoDiv = document.getElementById('userInfo');
+    userInfoDiv.innerHTML = `
+      <span class="lark-user">
+        ${escapeHtml(larkUser.name || larkUser.displayName || 'ユーザー')}
+      </span>
+    `;
+
+    // Find or create user in our system
+    await syncLarkUser(larkUser);
+
+    // Load data
+    loadRequests();
+    loadApprovals();
+
+  } catch (err) {
+    console.error('Lark SDK initialization failed:', err);
+    // Fallback to manual user selection
+    loadUsers();
+  }
+}
+
+// Sync Lark user with our system
+async function syncLarkUser(larkUserInfo) {
+  try {
+    // Try to find user by Lark ID
+    const res = await fetch(`${API_BASE}/users/lark/${larkUserInfo.userId || larkUserInfo.openId}`);
+    if (res.ok) {
+      const data = await res.json();
+      currentUser = data.user;
+    } else {
+      // User not found - show error
+      console.warn('User not registered in system');
+      showError('このユーザーはシステムに登録されていません。管理者にお問い合わせください。');
+    }
+  } catch (err) {
+    console.error('Failed to sync Lark user:', err);
+  }
+}
+
+// Show error message
+function showError(message) {
+  const main = document.querySelector('.main');
+  main.innerHTML = `
+    <div class="empty-state">
+      <div class="empty-state-icon">&#9888;</div>
+      <p>${escapeHtml(message)}</p>
+    </div>
+  `;
+}
 
 // Tab switching
 function initTabs() {
@@ -226,17 +313,19 @@ async function loadApprovals() {
 // View request detail
 async function viewRequest(requestId) {
   try {
-    const [requestRes, routeRes] = await Promise.all([
+    const [requestRes, routeRes, historyRes] = await Promise.all([
       fetch(`${API_BASE}/requests/${requestId}`),
-      fetch(`${API_BASE}/requests/${requestId}/route`)
+      fetch(`${API_BASE}/requests/${requestId}/route`),
+      fetch(`${API_BASE}/requests/${requestId}/history`)
     ]);
 
     const requestData = await requestRes.json();
     const routeData = await routeRes.json();
+    const historyData = await historyRes.json();
 
     const request = requestData.request;
     const route = routeData.route || [];
-    const history = routeData.history || [];
+    const history = historyData.history || [];
 
     document.getElementById('detailTitle').textContent = request.title;
     document.getElementById('requestDetail').innerHTML = `
@@ -278,17 +367,24 @@ async function viewRequest(requestId) {
 
       ${history.length > 0 ? `
         <div class="detail-section">
-          <h4>履歴</h4>
-          ${history.map(h => `
-            <div class="history-item">
-              <div class="history-icon ${h.action}">${getActionIcon(h.action)}</div>
-              <div class="history-content">
-                <div class="history-action">${getActionLabel(h.action)}</div>
-                <div class="history-time">${formatDate(h.createdAt)}</div>
-                ${h.comment ? `<div class="history-comment">${escapeHtml(h.comment)}</div>` : ''}
+          <h4>承認履歴</h4>
+          <div class="timeline">
+            ${history.map(h => `
+              <div class="timeline-item">
+                <div class="timeline-icon ${h.action}">${getActionIcon(h.action)}</div>
+                <div class="timeline-content">
+                  <div class="timeline-header">
+                    <span class="timeline-action">${getActionLabel(h.action)}</span>
+                    <span class="timeline-step">ステップ ${h.stepOrder}</span>
+                  </div>
+                  <div class="timeline-approver">${h.approverName ? escapeHtml(h.approverName) : (h.action === 'skip' ? 'システム' : '不明')}</div>
+                  <div class="timeline-time">${formatDate(h.createdAt)}</div>
+                  ${h.comment ? `<div class="timeline-comment">"${escapeHtml(h.comment)}"</div>` : ''}
+                  ${h.skipReason ? `<div class="timeline-skip-reason">${getSkipReasonLabel(h.skipReason)}</div>` : ''}
+                </div>
               </div>
-            </div>
-          `).join('')}
+            `).join('')}
+          </div>
         </div>
       ` : ''}
 

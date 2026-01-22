@@ -17,6 +17,27 @@ userRoutes.get('/', async (c) => {
   return c.json({ users, total: users.length });
 });
 
+// Lark IDでユーザー取得
+userRoutes.get('/lark/:larkId', async (c) => {
+  const larkId = c.req.param('larkId');
+  const repo = getRepository();
+  const user = await repo.getUserByLarkId(larkId);
+  if (!user) {
+    return c.json({ error: 'User not found' }, 404);
+  }
+
+  // 役職情報も取得
+  const positions = await repo.getUserPositions(user.id);
+  const primaryPosition = positions.find((p) => p.isPrimary);
+
+  return c.json({
+    user: {
+      ...user,
+      organizationId: primaryPosition?.organizationId || null,
+    },
+  });
+});
+
 // ユーザー詳細取得（役職・承認ロール含む）
 userRoutes.get('/:id', async (c) => {
   const id = c.req.param('id');

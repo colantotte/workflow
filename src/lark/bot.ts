@@ -1,5 +1,11 @@
 import { getLarkClient } from './client.js';
 import type { Request, ResolvedApprovalStep } from '../models/index.js';
+import {
+  createApprovalRequestCard,
+  createApprovalCompleteCard,
+  createRejectionCard,
+  createRemandCard,
+} from './cards.js';
 
 export class LarkBot {
   /**
@@ -183,7 +189,7 @@ function getBot(): LarkBot {
   return botInstance;
 }
 
-// ヘルパー関数（簡易版）
+// ヘルパー関数（Interactive Card版）
 export async function sendApprovalNotification(
   larkUserId: string,
   options: {
@@ -191,17 +197,29 @@ export async function sendApprovalNotification(
     requestTitle: string;
     applicantName: string;
     stepLabel: string;
+    stepOrder?: number;
+    content?: Record<string, unknown>;
+    workflowCategory?: string;
   }
 ): Promise<void> {
-  const bot = getBot();
-  await bot.sendMessage(larkUserId, {
-    title: '📋 承認依頼',
-    text: `**${options.applicantName}** さんから承認依頼が届きました。
+  const client = getLarkClient();
+  const card = createApprovalRequestCard({
+    requestId: options.requestId,
+    requestTitle: options.requestTitle,
+    applicantName: options.applicantName,
+    stepLabel: options.stepLabel,
+    stepOrder: options.stepOrder ?? 1,
+    content: options.content,
+    workflowCategory: options.workflowCategory,
+  });
 
-**件名**: ${options.requestTitle}
-**ステップ**: ${options.stepLabel}
-
-内容を確認し、承認または却下してください。`,
+  await client.im.v1.message.create({
+    params: { receive_id_type: 'user_id' },
+    data: {
+      receive_id: larkUserId,
+      msg_type: 'interactive',
+      content: JSON.stringify(card),
+    },
   });
 }
 
@@ -212,21 +230,44 @@ export async function sendRequestStatusNotification(
     requestTitle: string;
     status: 'approved' | 'rejected' | 'remanded';
     comment?: string;
+    approverName?: string;
   }
 ): Promise<void> {
-  const bot = getBot();
+  const client = getLarkClient();
+  let card: object;
 
-  const statusMap = {
-    approved: { title: '✅ 承認完了', text: '承認されました' },
-    rejected: { title: '❌ 申請却下', text: '却下されました' },
-    remanded: { title: '↩️ 差戻し', text: '差し戻されました' },
-  };
+  switch (options.status) {
+    case 'approved':
+      card = createApprovalCompleteCard({
+        requestId: options.requestId,
+        requestTitle: options.requestTitle,
+        approverName: options.approverName ?? '',
+      });
+      break;
+    case 'rejected':
+      card = createRejectionCard({
+        requestId: options.requestId,
+        requestTitle: options.requestTitle,
+        rejectorName: options.approverName ?? '',
+        comment: options.comment,
+      });
+      break;
+    case 'remanded':
+      card = createRemandCard({
+        requestId: options.requestId,
+        requestTitle: options.requestTitle,
+        remandedByName: options.approverName ?? '',
+        comment: options.comment,
+      });
+      break;
+  }
 
-  const { title, text } = statusMap[options.status];
-  const commentText = options.comment ? `\n\n**コメント**: ${options.comment}` : '';
-
-  await bot.sendMessage(larkUserId, {
-    title,
-    text: `申請「**${options.requestTitle}**」が${text}。${commentText}`,
+  await client.im.v1.message.create({
+    params: { receive_id_type: 'user_id' },
+    data: {
+      receive_id: larkUserId,
+      msg_type: 'interactive',
+      content: JSON.stringify(card),
+    },
   });
 }

@@ -554,10 +554,23 @@ requestRoutes.post('/:id/cancel', async (c) => {
   return c.json({ success: true, request });
 });
 
-// 承認履歴取得
+// 承認履歴取得（承認者名付き）
 requestRoutes.get('/:id/history', async (c) => {
   const id = c.req.param('id');
   const repo = getRepository();
   const history = await repo.getApprovalHistory(id);
-  return c.json({ history });
+
+  // 承認者名を付与
+  const historyWithApprover = await Promise.all(
+    history.map(async (h) => {
+      let approverName = null;
+      if (h.approverId) {
+        const approver = await repo.getUser(h.approverId);
+        approverName = approver?.name ?? null;
+      }
+      return { ...h, approverName };
+    })
+  );
+
+  return c.json({ history: historyWithApprover });
 });
