@@ -37,12 +37,12 @@ authRoutes.post('/callback', async (c) => {
       },
     });
 
-    if (!tokenResponse.data?.data?.access_token) {
+    if (!tokenResponse.data?.access_token) {
       console.error('Token exchange failed:', tokenResponse);
       return c.json({ error: 'Failed to exchange code for token' }, 400);
     }
 
-    const accessToken = tokenResponse.data.data.access_token;
+    const accessToken = tokenResponse.data.access_token;
 
     // ユーザー情報を取得
     const userResponse = await client.authen.v1.userInfo.get({
@@ -51,17 +51,23 @@ authRoutes.post('/callback', async (c) => {
       },
     });
 
-    if (!userResponse.data?.data) {
+    if (!userResponse.data) {
       console.error('User info fetch failed:', userResponse);
       return c.json({ error: 'Failed to get user info' }, 400);
     }
 
-    const larkUserInfo = userResponse.data.data;
+    const larkUserInfo = userResponse.data;
     console.log('Lark user info:', larkUserInfo);
 
     // システム内のユーザーを検索
     const repo = getRepository();
     const userId = larkUserInfo.user_id || larkUserInfo.open_id;
+
+    if (!userId) {
+      console.error('No user ID found in Lark response:', larkUserInfo);
+      return c.json({ error: 'No user ID in Lark response' }, 400);
+    }
+
     let user = await repo.getUserByLarkId(userId);
 
     if (!user) {
