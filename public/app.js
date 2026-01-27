@@ -137,7 +137,16 @@ async function handleOAuthCallback(code) {
       loadApprovals();
     } else {
       console.error('OAuth callback failed:', data);
-      showError(data.message || '認証に失敗しました');
+      // Show detailed error message
+      let errorMsg = data.message || data.error || '認証に失敗しました';
+      if (data.larkUser) {
+        errorMsg += `\n\nLarkユーザー: ${data.larkUser.name || data.larkUser.userId}`;
+      }
+      if (data.details) {
+        errorMsg += `\n詳細: ${data.details}`;
+      }
+      showError(errorMsg);
+      userInfoDiv.innerHTML = '<span class="lark-user" style="color: var(--danger);">認証エラー</span>';
     }
   } catch (err) {
     console.error('OAuth callback error:', err);
