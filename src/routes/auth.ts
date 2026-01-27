@@ -6,9 +6,8 @@ const authRoutes = new Hono();
 
 // Lark OAuth設定
 const LARK_APP_ID = process.env.LARK_APP_ID ?? '';
-const REDIRECT_URI = process.env.VERCEL_URL
-  ? `https://${process.env.VERCEL_URL}`
-  : process.env.REDIRECT_URI ?? 'https://workflow-chi-six.vercel.app';
+// 本番URLを優先使用（Lark Developer Consoleで登録済みのURL）
+const REDIRECT_URI = process.env.REDIRECT_URI ?? 'https://workflow-chi-six.vercel.app';
 
 // OAuth認証URL生成
 authRoutes.get('/login', (c) => {
