@@ -11,6 +11,7 @@ export function initLarkClient(config: LarkConfig): lark.Client {
   client = new lark.Client({
     appId: config.appId,
     appSecret: config.appSecret,
+    domain: lark.Domain.Lark, // Lark international (including Japan)
     loggerLevel: lark.LoggerLevel.info,
   });
 
