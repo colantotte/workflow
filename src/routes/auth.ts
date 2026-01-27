@@ -58,24 +58,35 @@ authRoutes.post('/callback', async (c) => {
     const larkUserInfo = userResponse.data;
     console.log('Lark user info:', larkUserInfo);
 
-    // システム内のユーザーを検索
+    // システム内のユーザーを検索（user_idとopen_idの両方で試行）
     const repo = getRepository();
-    const userId = larkUserInfo.user_id || larkUserInfo.open_id;
+    const userIdFromLark = larkUserInfo.user_id;
+    const openIdFromLark = larkUserInfo.open_id;
 
-    if (!userId) {
+    if (!userIdFromLark && !openIdFromLark) {
       console.error('No user ID found in Lark response:', larkUserInfo);
       return c.json({ error: 'No user ID in Lark response' }, 400);
     }
 
-    let user = await repo.getUserByLarkId(userId);
+    // user_idで検索、なければopen_idで検索
+    let user = userIdFromLark ? await repo.getUserByLarkId(userIdFromLark) : null;
+    if (!user && openIdFromLark) {
+      user = await repo.getUserByLarkId(openIdFromLark);
+    }
+
+    const userId = userIdFromLark || openIdFromLark;
 
     if (!user) {
       // ユーザーが見つからない場合はエラー
+      console.log('User not found. Looking for larkUserId:', userId);
+      console.log('Lark returned - user_id:', larkUserInfo.user_id, 'open_id:', larkUserInfo.open_id);
       return c.json({
         error: 'User not registered',
-        message: 'このユーザーはシステムに登録されていません',
+        message: `このユーザーはシステムに登録されていません。Lark ID: ${userId}`,
         larkUser: {
           userId: userId,
+          user_id: larkUserInfo.user_id,
+          open_id: larkUserInfo.open_id,
           name: larkUserInfo.name,
           email: larkUserInfo.email,
         },
