@@ -43,20 +43,44 @@ authRoutes.post('/callback', async (c) => {
 
     const accessToken = tokenResponse.data.access_token;
 
-    // ユーザー情報を取得
-    const userResponse = await client.authen.v1.userInfo.get({
+    // ユーザー情報を取得（直接HTTPリクエスト）
+    const userInfoResponse = await fetch('https://open.larksuite.com/open-apis/authen/v1/user_info', {
+      method: 'GET',
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
       },
     });
 
-    if (!userResponse.data) {
-      console.error('User info fetch failed:', userResponse);
-      return c.json({ error: 'Failed to get user info' }, 400);
+    const userInfoData = await userInfoResponse.json() as {
+      code: number;
+      msg?: string;
+      data?: {
+        user_id?: string;
+        open_id?: string;
+        name?: string;
+        en_name?: string;
+        email?: string;
+        avatar_url?: string;
+      };
+    };
+    console.log('User info response:', userInfoData);
+
+    if (!userInfoResponse.ok || userInfoData.code !== 0) {
+      console.error('User info fetch failed:', userInfoData);
+      return c.json({
+        error: 'Failed to get user info',
+        details: userInfoData.msg || JSON.stringify(userInfoData),
+      }, 400);
     }
 
-    const larkUserInfo = userResponse.data;
+    const larkUserInfo = userInfoData.data;
     console.log('Lark user info:', larkUserInfo);
+
+    if (!larkUserInfo) {
+      console.error('No user info data in response');
+      return c.json({ error: 'No user info data in response' }, 400);
+    }
 
     // システム内のユーザーを検索（user_idとopen_idの両方で試行）
     const repo = getRepository();
