@@ -12,8 +12,17 @@ const API_BASE = '/api';
 document.addEventListener('DOMContentLoaded', async () => {
   initTabs();
 
-  // Check if running inside Lark
-  if (window.h5sdk) {
+  // Check if running inside Lark (multiple detection methods)
+  const inLark = window.h5sdk || window.tt || window.lark ||
+                 navigator.userAgent.includes('Lark') ||
+                 navigator.userAgent.includes('Feishu');
+
+  if (inLark) {
+    isLarkEnvironment = true;
+    // Hide user selector immediately in Lark environment
+    const userInfoDiv = document.getElementById('userInfo');
+    userInfoDiv.innerHTML = '<span class="lark-user">読み込み中...</span>';
+
     await initLarkSDK();
   } else {
     // Not in Lark - show user selector for development
@@ -27,47 +36,90 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Initialize Lark SDK
 async function initLarkSDK() {
   try {
-    // Get Lark SDK ready
-    await new Promise((resolve, reject) => {
-      window.h5sdk.ready({
-        success: resolve,
-        fail: reject,
+    let userInfo = null;
+
+    // Try h5sdk first
+    if (window.h5sdk) {
+      console.log('Trying h5sdk...');
+      await new Promise((resolve, reject) => {
+        window.h5sdk.ready({
+          success: resolve,
+          fail: (err) => {
+            console.warn('h5sdk.ready failed:', err);
+            resolve(); // Continue anyway
+          },
+        });
       });
-    });
 
-    isLarkEnvironment = true;
-    console.log('Lark SDK initialized');
+      try {
+        userInfo = await new Promise((resolve, reject) => {
+          window.h5sdk.biz.contact.getUserInfo({
+            success: resolve,
+            fail: reject,
+          });
+        });
+      } catch (e) {
+        console.warn('h5sdk.biz.contact.getUserInfo failed:', e);
+      }
+    }
 
-    // Get user info
-    const userInfo = await new Promise((resolve, reject) => {
-      window.h5sdk.biz.contact.getUserInfo({
-        success: resolve,
-        fail: reject,
-      });
-    });
+    // Try tt (Lark Mini Program SDK) if h5sdk didn't work
+    if (!userInfo && window.tt && window.tt.getUserInfo) {
+      console.log('Trying tt.getUserInfo...');
+      try {
+        const res = await new Promise((resolve, reject) => {
+          window.tt.getUserInfo({
+            success: resolve,
+            fail: reject,
+          });
+        });
+        userInfo = res.userInfo;
+      } catch (e) {
+        console.warn('tt.getUserInfo failed:', e);
+      }
+    }
 
-    larkUser = userInfo;
-    console.log('Lark user:', larkUser);
+    // Try window.lark if available
+    if (!userInfo && window.lark) {
+      console.log('Trying window.lark...');
+      try {
+        userInfo = await window.lark.getUserInfo();
+      } catch (e) {
+        console.warn('window.lark.getUserInfo failed:', e);
+      }
+    }
 
-    // Hide user selector and show Lark user info
-    const userInfoDiv = document.getElementById('userInfo');
-    userInfoDiv.innerHTML = `
-      <span class="lark-user">
-        ${escapeHtml(larkUser.name || larkUser.displayName || 'ユーザー')}
-      </span>
-    `;
+    if (userInfo) {
+      larkUser = userInfo;
+      console.log('Lark user:', larkUser);
 
-    // Find or create user in our system
-    await syncLarkUser(larkUser);
+      // Show Lark user info
+      const userInfoDiv = document.getElementById('userInfo');
+      userInfoDiv.innerHTML = `
+        <span class="lark-user">
+          ${escapeHtml(larkUser.name || larkUser.displayName || larkUser.nickName || 'ユーザー')}
+        </span>
+      `;
 
-    // Load data
-    loadRequests();
-    loadApprovals();
+      // Find user in our system
+      await syncLarkUser(larkUser);
+
+      // Load data
+      loadRequests();
+      loadApprovals();
+    } else {
+      // Could not get user info - show error
+      console.error('Could not get Lark user info');
+      const userInfoDiv = document.getElementById('userInfo');
+      userInfoDiv.innerHTML = '<span class="lark-user" style="color: var(--danger);">認証エラー</span>';
+      showError('Larkユーザー情報を取得できませんでした。アプリを再度開いてください。');
+    }
 
   } catch (err) {
     console.error('Lark SDK initialization failed:', err);
-    // Fallback to manual user selection
-    loadUsers();
+    const userInfoDiv = document.getElementById('userInfo');
+    userInfoDiv.innerHTML = '<span class="lark-user" style="color: var(--danger);">エラー</span>';
+    showError('Lark SDKの初期化に失敗しました: ' + err.message);
   }
 }
 
