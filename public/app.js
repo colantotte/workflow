@@ -12,6 +12,14 @@ const API_BASE = '/api';
 document.addEventListener('DOMContentLoaded', async () => {
   initTabs();
 
+  // Check for force logout
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('logout') === '1') {
+    localStorage.removeItem('currentUser');
+    localStorage.removeItem('larkUser');
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+
   // Check if running inside Lark (multiple detection methods)
   const inLark = window.h5sdk || window.tt || window.lark ||
                  navigator.userAgent.includes('Lark') ||
@@ -24,7 +32,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     userInfoDiv.innerHTML = '<span class="lark-user">認証中...</span>';
 
     // Check for OAuth callback code in URL
-    const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
 
     if (code) {
@@ -47,10 +54,13 @@ document.addEventListener('DOMContentLoaded', async () => {
           loadApprovals();
         } catch (e) {
           console.error('Failed to parse saved user:', e);
+          localStorage.removeItem('currentUser');
+          localStorage.removeItem('larkUser');
           startOAuthFlow();
         }
       } else {
         // No session - start OAuth flow
+        console.log('No saved session, starting OAuth flow...');
         startOAuthFlow();
       }
     }
@@ -65,18 +75,31 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Start OAuth authentication flow
 async function startOAuthFlow() {
+  const userInfoDiv = document.getElementById('userInfo');
+  userInfoDiv.innerHTML = '<span class="lark-user">OAuth認証開始中...</span>';
+
   try {
+    console.log('Fetching auth URL from:', `${API_BASE}/auth/login`);
     const res = await fetch(`${API_BASE}/auth/login`);
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+
     const data = await res.json();
+    console.log('Auth response:', data);
 
     if (data.authUrl) {
       // Redirect to Lark OAuth
+      console.log('Redirecting to:', data.authUrl);
       window.location.href = data.authUrl;
     } else {
+      userInfoDiv.innerHTML = '<span class="lark-user" style="color: var(--danger);">認証エラー</span>';
       showError('認証URLの取得に失敗しました');
     }
   } catch (err) {
     console.error('Failed to start OAuth flow:', err);
+    userInfoDiv.innerHTML = '<span class="lark-user" style="color: var(--danger);">認証エラー</span>';
     showError('認証の開始に失敗しました: ' + err.message);
   }
 }
