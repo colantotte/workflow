@@ -12,12 +12,6 @@ const API_BASE = '/api';
 document.addEventListener('DOMContentLoaded', async () => {
   initTabs();
 
-  // TEMPORARY: Force clear localStorage to test OAuth flow
-  // Remove this after OAuth is working
-  localStorage.removeItem('currentUser');
-  localStorage.removeItem('larkUser');
-  console.log('localStorage cleared for OAuth testing');
-
   // Check for force logout
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('logout') === '1') {
