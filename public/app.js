@@ -21,9 +21,39 @@ document.addEventListener('DOMContentLoaded', async () => {
     isLarkEnvironment = true;
     // Hide user selector immediately in Lark environment
     const userInfoDiv = document.getElementById('userInfo');
-    userInfoDiv.innerHTML = '<span class="lark-user">読み込み中...</span>';
+    userInfoDiv.innerHTML = '<span class="lark-user">認証中...</span>';
 
-    await initLarkSDK();
+    // Check for OAuth callback code in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+
+    if (code) {
+      // Handle OAuth callback
+      await handleOAuthCallback(code);
+      // Clean URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else {
+      // Check if we have a saved session
+      const savedUser = localStorage.getItem('currentUser');
+      if (savedUser) {
+        try {
+          currentUser = JSON.parse(savedUser);
+          const larkUserData = localStorage.getItem('larkUser');
+          if (larkUserData) {
+            larkUser = JSON.parse(larkUserData);
+          }
+          showCurrentUser();
+          loadRequests();
+          loadApprovals();
+        } catch (e) {
+          console.error('Failed to parse saved user:', e);
+          startOAuthFlow();
+        }
+      } else {
+        // No session - start OAuth flow
+        startOAuthFlow();
+      }
+    }
   } else {
     // Not in Lark - show user selector for development
     console.log('Not running in Lark environment');
@@ -33,94 +63,77 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadWorkflows();
 });
 
-// Initialize Lark SDK
-async function initLarkSDK() {
+// Start OAuth authentication flow
+async function startOAuthFlow() {
   try {
-    let userInfo = null;
+    const res = await fetch(`${API_BASE}/auth/login`);
+    const data = await res.json();
 
-    // Try h5sdk first
-    if (window.h5sdk) {
-      console.log('Trying h5sdk...');
-      await new Promise((resolve, reject) => {
-        window.h5sdk.ready({
-          success: resolve,
-          fail: (err) => {
-            console.warn('h5sdk.ready failed:', err);
-            resolve(); // Continue anyway
-          },
-        });
-      });
-
-      try {
-        userInfo = await new Promise((resolve, reject) => {
-          window.h5sdk.biz.contact.getUserInfo({
-            success: resolve,
-            fail: reject,
-          });
-        });
-      } catch (e) {
-        console.warn('h5sdk.biz.contact.getUserInfo failed:', e);
-      }
+    if (data.authUrl) {
+      // Redirect to Lark OAuth
+      window.location.href = data.authUrl;
+    } else {
+      showError('認証URLの取得に失敗しました');
     }
+  } catch (err) {
+    console.error('Failed to start OAuth flow:', err);
+    showError('認証の開始に失敗しました: ' + err.message);
+  }
+}
 
-    // Try tt (Lark Mini Program SDK) if h5sdk didn't work
-    if (!userInfo && window.tt && window.tt.getUserInfo) {
-      console.log('Trying tt.getUserInfo...');
-      try {
-        const res = await new Promise((resolve, reject) => {
-          window.tt.getUserInfo({
-            success: resolve,
-            fail: reject,
-          });
-        });
-        userInfo = res.userInfo;
-      } catch (e) {
-        console.warn('tt.getUserInfo failed:', e);
-      }
-    }
+// Handle OAuth callback
+async function handleOAuthCallback(code) {
+  try {
+    const userInfoDiv = document.getElementById('userInfo');
+    userInfoDiv.innerHTML = '<span class="lark-user">ログイン中...</span>';
 
-    // Try window.lark if available
-    if (!userInfo && window.lark) {
-      console.log('Trying window.lark...');
-      try {
-        userInfo = await window.lark.getUserInfo();
-      } catch (e) {
-        console.warn('window.lark.getUserInfo failed:', e);
-      }
-    }
+    const res = await fetch(`${API_BASE}/auth/callback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
 
-    if (userInfo) {
-      larkUser = userInfo;
-      console.log('Lark user:', larkUser);
+    const data = await res.json();
 
-      // Show Lark user info
-      const userInfoDiv = document.getElementById('userInfo');
-      userInfoDiv.innerHTML = `
-        <span class="lark-user">
-          ${escapeHtml(larkUser.name || larkUser.displayName || larkUser.nickName || 'ユーザー')}
-        </span>
-      `;
+    if (res.ok && data.success) {
+      currentUser = data.user;
+      larkUser = data.larkUser;
 
-      // Find user in our system
-      await syncLarkUser(larkUser);
+      // Save to localStorage
+      localStorage.setItem('currentUser', JSON.stringify(currentUser));
+      localStorage.setItem('larkUser', JSON.stringify(larkUser));
 
-      // Load data
+      showCurrentUser();
       loadRequests();
       loadApprovals();
     } else {
-      // Could not get user info - show error
-      console.error('Could not get Lark user info');
-      const userInfoDiv = document.getElementById('userInfo');
-      userInfoDiv.innerHTML = '<span class="lark-user" style="color: var(--danger);">認証エラー</span>';
-      showError('Larkユーザー情報を取得できませんでした。アプリを再度開いてください。');
+      console.error('OAuth callback failed:', data);
+      showError(data.message || '認証に失敗しました');
     }
-
   } catch (err) {
-    console.error('Lark SDK initialization failed:', err);
-    const userInfoDiv = document.getElementById('userInfo');
-    userInfoDiv.innerHTML = '<span class="lark-user" style="color: var(--danger);">エラー</span>';
-    showError('Lark SDKの初期化に失敗しました: ' + err.message);
+    console.error('OAuth callback error:', err);
+    showError('認証処理中にエラーが発生しました: ' + err.message);
   }
+}
+
+// Show current user info
+function showCurrentUser() {
+  const userInfoDiv = document.getElementById('userInfo');
+  const displayName = larkUser?.name || currentUser?.name || 'ユーザー';
+  userInfoDiv.innerHTML = `
+    <span class="lark-user">
+      ${escapeHtml(displayName)}
+    </span>
+  `;
+}
+
+// Logout function
+function logout() {
+  localStorage.removeItem('currentUser');
+  localStorage.removeItem('larkUser');
+  currentUser = null;
+  larkUser = null;
+  startOAuthFlow();
 }
 
 // Sync Lark user with our system

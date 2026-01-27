@@ -5,6 +5,7 @@ import { workflowRoutes } from './workflows.js';
 import { requestRoutes } from './requests.js';
 import { importRoutes } from './import.js';
 import { larkWebhookRoutes } from './lark-webhook.js';
+import { authRoutes } from './auth.js';
 
 const api = new Hono();
 
@@ -20,5 +21,6 @@ api.route('/workflows', workflowRoutes);
 api.route('/requests', requestRoutes);
 api.route('/import', importRoutes);
 api.route('/lark', larkWebhookRoutes);
+api.route('/auth', authRoutes);
 
 export { api };
