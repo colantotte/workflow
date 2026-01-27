@@ -146,14 +146,48 @@ export class LarkBaseRepository {
     }, 120); // 2分キャッシュ
   }
 
+  // リンクフィールドからユーザーIDを取得するヘルパー
+  private getUserIdFromLink(linkField: unknown): string | null {
+    if (!linkField) return null;
+    // リンクフィールドは配列形式: [{ record_ids: ["recXXX"] }] または { link_record_ids: ["recXXX"] }
+    if (Array.isArray(linkField) && linkField.length > 0) {
+      const first = linkField[0];
+      if (typeof first === 'string') return first;
+      if (first?.record_ids?.[0]) return first.record_ids[0];
+      if (first?.link_record_ids?.[0]) return first.link_record_ids[0];
+      if (first?.text) return first.text; // テキスト表示の場合
+    }
+    if (typeof linkField === 'object' && linkField !== null) {
+      const obj = linkField as Record<string, unknown>;
+      if (obj.link_record_ids && Array.isArray(obj.link_record_ids)) {
+        return obj.link_record_ids[0] as string;
+      }
+    }
+    return null;
+  }
+
   async getUserPositions(userId: string): Promise<UserPosition[]> {
     const records = await this.getAllUserPositions();
-    const user = await this.getUser(userId);
-    const larkUserId = user?.larkUserId ?? userId;
 
+    // user_link（リンクフィールド）または user_id（旧フィールド）でフィルタ
     return records
-      .filter((r) => r.fields.user_id === larkUserId)
-      .map((r) => this.mapUserPosition(r, user?.id ?? userId));
+      .filter((r) => {
+        const linkedUserId = this.getUserIdFromLink(r.fields.user_link);
+        if (linkedUserId) {
+          return linkedUserId === userId;
+        }
+        // フォールバック: 旧 user_id フィールド
+        const user = this.getCachedUserById(userId);
+        return r.fields.user_id === user?.larkUserId;
+      })
+      .map((r) => this.mapUserPosition(r, userId));
+  }
+
+  // キャッシュからユーザーを同期的に取得（既にロード済みの場合）
+  private getCachedUserById(userId: string): User | null {
+    const users = cache.get<User[]>('users:all');
+    if (!users) return null;
+    return users.find((u) => u.id === userId || u.larkUserId === userId) || null;
   }
 
   async getUsersByOrganizationAndPosition(
@@ -167,8 +201,16 @@ export class LarkBaseRepository {
 
     const users: User[] = [];
     for (const up of matching) {
-      const user = await this.getUserByLarkId(String(up.fields.user_id ?? ''));
-      if (user) users.push(user);
+      // user_link（リンクフィールド）を優先
+      const linkedUserId = this.getUserIdFromLink(up.fields.user_link);
+      if (linkedUserId) {
+        const user = await this.getUser(linkedUserId);
+        if (user) users.push(user);
+      } else {
+        // フォールバック: 旧 user_id フィールド
+        const user = await this.getUserByLarkId(String(up.fields.user_id ?? ''));
+        if (user) users.push(user);
+      }
     }
     return users;
   }
@@ -196,12 +238,19 @@ export class LarkBaseRepository {
 
   async getUserApprovalRoles(userId: string): Promise<UserApprovalRole[]> {
     const records = await this.getAllUserApprovalRoles();
-    const user = await this.getUser(userId);
-    const larkUserId = user?.larkUserId ?? userId;
 
+    // user_link（リンクフィールド）または user_id（旧フィールド）でフィルタ
     return records
-      .filter((r) => r.fields.user_id === larkUserId)
-      .map((r) => this.mapUserApprovalRole(r, user?.id ?? userId));
+      .filter((r) => {
+        const linkedUserId = this.getUserIdFromLink(r.fields.user_link);
+        if (linkedUserId) {
+          return linkedUserId === userId;
+        }
+        // フォールバック: 旧 user_id フィールド
+        const user = this.getCachedUserById(userId);
+        return r.fields.user_id === user?.larkUserId;
+      })
+      .map((r) => this.mapUserApprovalRole(r, userId));
   }
 
   async getUsersByApprovalRole(roleName: string): Promise<User[]> {
@@ -210,8 +259,16 @@ export class LarkBaseRepository {
 
     const users: User[] = [];
     for (const ur of matching) {
-      const user = await this.getUserByLarkId(String(ur.fields.user_id ?? ''));
-      if (user) users.push(user);
+      // user_link（リンクフィールド）を優先
+      const linkedUserId = this.getUserIdFromLink(ur.fields.user_link);
+      if (linkedUserId) {
+        const user = await this.getUser(linkedUserId);
+        if (user) users.push(user);
+      } else {
+        // フォールバック: 旧 user_id フィールド
+        const user = await this.getUserByLarkId(String(ur.fields.user_id ?? ''));
+        if (user) users.push(user);
+      }
     }
     return users;
   }
