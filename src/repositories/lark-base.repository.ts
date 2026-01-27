@@ -12,6 +12,7 @@ import type {
   Request,
   ApprovalHistory,
 } from '../models/index.js';
+import { cached, cache } from '../utils/cache.js';
 
 // テーブルID設定
 const TABLES = {
@@ -36,14 +37,15 @@ export class LarkBaseRepository {
 
   // ==================== 組織 ====================
   async listOrganizations(): Promise<Organization[]> {
-    const records = await this.client.getAllRecords(TABLES.organizations);
-    return records.map((r) => this.mapOrganization(r));
+    return cached('organizations:all', async () => {
+      const records = await this.client.getAllRecords(TABLES.organizations);
+      return records.map((r) => this.mapOrganization(r));
+    }, 300); // 5分キャッシュ
   }
 
   async getOrganization(id: string): Promise<Organization | null> {
-    const records = await this.client.getAllRecords(TABLES.organizations);
-    const record = records.find((r) => r.record_id === id || r.fields.code === id);
-    return record ? this.mapOrganization(record) : null;
+    const orgs = await this.listOrganizations();
+    return orgs.find((o) => o.id === id || o.code === id) || null;
   }
 
   private mapOrganization(record: LarkBaseRecord): Organization {
@@ -61,14 +63,15 @@ export class LarkBaseRepository {
 
   // ==================== 役職 ====================
   async listPositions(): Promise<Position[]> {
-    const records = await this.client.getAllRecords(TABLES.positions);
-    return records.map((r) => this.mapPosition(r));
+    return cached('positions:all', async () => {
+      const records = await this.client.getAllRecords(TABLES.positions);
+      return records.map((r) => this.mapPosition(r));
+    }, 300); // 5分キャッシュ
   }
 
   async getPosition(id: string): Promise<Position | null> {
-    const records = await this.client.getAllRecords(TABLES.positions);
-    const record = records.find((r) => r.record_id === id || r.fields.name === id);
-    return record ? this.mapPosition(record) : null;
+    const positions = await this.listPositions();
+    return positions.find((p) => p.id === id || p.name === id) || null;
   }
 
   private mapPosition(record: LarkBaseRecord): Position {
@@ -84,14 +87,15 @@ export class LarkBaseRepository {
 
   // ==================== 承認ロール ====================
   async listApprovalRoles(): Promise<ApprovalRole[]> {
-    const records = await this.client.getAllRecords(TABLES.approvalRoles);
-    return records.map((r) => this.mapApprovalRole(r));
+    return cached('approvalRoles:all', async () => {
+      const records = await this.client.getAllRecords(TABLES.approvalRoles);
+      return records.map((r) => this.mapApprovalRole(r));
+    }, 300); // 5分キャッシュ
   }
 
   async getApprovalRole(id: string): Promise<ApprovalRole | null> {
-    const records = await this.client.getAllRecords(TABLES.approvalRoles);
-    const record = records.find((r) => r.record_id === id || r.fields.name === id);
-    return record ? this.mapApprovalRole(record) : null;
+    const roles = await this.listApprovalRoles();
+    return roles.find((r) => r.id === id || r.name === id) || null;
   }
 
   private mapApprovalRole(record: LarkBaseRecord): ApprovalRole {
@@ -107,20 +111,20 @@ export class LarkBaseRepository {
 
   // ==================== ユーザー ====================
   async listUsers(): Promise<User[]> {
-    const records = await this.client.getAllRecords(TABLES.users);
-    return records.map((r) => this.mapUser(r));
+    return cached('users:all', async () => {
+      const records = await this.client.getAllRecords(TABLES.users);
+      return records.map((r) => this.mapUser(r));
+    }, 120); // 2分キャッシュ
   }
 
   async getUser(id: string): Promise<User | null> {
-    const records = await this.client.getAllRecords(TABLES.users);
-    const record = records.find((r) => r.record_id === id || r.fields.lark_user_id === id);
-    return record ? this.mapUser(record) : null;
+    const users = await this.listUsers();
+    return users.find((u) => u.id === id || u.larkUserId === id) || null;
   }
 
   async getUserByLarkId(larkUserId: string): Promise<User | null> {
-    const records = await this.client.getAllRecords(TABLES.users);
-    const record = records.find((r) => r.fields.lark_user_id === larkUserId);
-    return record ? this.mapUser(record) : null;
+    const users = await this.listUsers();
+    return users.find((u) => u.larkUserId === larkUserId) || null;
   }
 
   private mapUser(record: LarkBaseRecord): User {
@@ -136,8 +140,14 @@ export class LarkBaseRepository {
   }
 
   // ==================== ユーザー役職 ====================
+  private async getAllUserPositions(): Promise<LarkBaseRecord[]> {
+    return cached('userPositions:all', async () => {
+      return this.client.getAllRecords(TABLES.userPositions);
+    }, 120); // 2分キャッシュ
+  }
+
   async getUserPositions(userId: string): Promise<UserPosition[]> {
-    const records = await this.client.getAllRecords(TABLES.userPositions);
+    const records = await this.getAllUserPositions();
     const user = await this.getUser(userId);
     const larkUserId = user?.larkUserId ?? userId;
 
@@ -150,7 +160,7 @@ export class LarkBaseRepository {
     organizationCode: string,
     positionName: string
   ): Promise<User[]> {
-    const userPositions = await this.client.getAllRecords(TABLES.userPositions);
+    const userPositions = await this.getAllUserPositions();
     const matching = userPositions.filter(
       (up) => up.fields.organization_code === organizationCode && up.fields.position_name === positionName
     );
@@ -178,8 +188,14 @@ export class LarkBaseRepository {
   }
 
   // ==================== ユーザー承認ロール ====================
+  private async getAllUserApprovalRoles(): Promise<LarkBaseRecord[]> {
+    return cached('userApprovalRoles:all', async () => {
+      return this.client.getAllRecords(TABLES.userApprovalRoles);
+    }, 120); // 2分キャッシュ
+  }
+
   async getUserApprovalRoles(userId: string): Promise<UserApprovalRole[]> {
-    const records = await this.client.getAllRecords(TABLES.userApprovalRoles);
+    const records = await this.getAllUserApprovalRoles();
     const user = await this.getUser(userId);
     const larkUserId = user?.larkUserId ?? userId;
 
@@ -189,7 +205,7 @@ export class LarkBaseRepository {
   }
 
   async getUsersByApprovalRole(roleName: string): Promise<User[]> {
-    const userRoles = await this.client.getAllRecords(TABLES.userApprovalRoles);
+    const userRoles = await this.getAllUserApprovalRoles();
     const matching = userRoles.filter((ur) => ur.fields.approval_role_name === roleName);
 
     const users: User[] = [];
@@ -214,8 +230,14 @@ export class LarkBaseRepository {
   }
 
   // ==================== ワークフロー ====================
+  private async getAllWorkflowRecords(): Promise<LarkBaseRecord[]> {
+    return cached('workflows:records', async () => {
+      return this.client.getAllRecords(TABLES.workflowDefinitions);
+    }, 300); // 5分キャッシュ
+  }
+
   async listWorkflows(category?: string): Promise<WorkflowDefinition[]> {
-    const records = await this.client.getAllRecords(TABLES.workflowDefinitions);
+    const records = await this.getAllWorkflowRecords();
     let filtered = records;
     if (category) {
       filtered = records.filter((r) => r.fields.category === category);
@@ -224,7 +246,7 @@ export class LarkBaseRepository {
   }
 
   async getWorkflow(id: string): Promise<WorkflowDefinition | null> {
-    const records = await this.client.getAllRecords(TABLES.workflowDefinitions);
+    const records = await this.getAllWorkflowRecords();
     const record = records.find((r) => r.record_id === id || r.fields.name === id);
     return record ? this.mapWorkflowDefinition(record) : null;
   }
@@ -338,8 +360,14 @@ export class LarkBaseRepository {
   }
 
   // ==================== 承認ステップ ====================
+  private async getAllApprovalStepRecords(): Promise<LarkBaseRecord[]> {
+    return cached('approvalSteps:records', async () => {
+      return this.client.getAllRecords(TABLES.approvalSteps);
+    }, 300); // 5分キャッシュ
+  }
+
   async getApprovalSteps(workflowId: string): Promise<ApprovalStep[]> {
-    const records = await this.client.getAllRecords(TABLES.approvalSteps);
+    const records = await this.getAllApprovalStepRecords();
     return records
       .filter((r) => r.fields.workflow_id === workflowId)
       .map((r) => this.mapApprovalStep(r))
