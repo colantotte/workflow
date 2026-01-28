@@ -135,19 +135,27 @@ requestRoutes.get('/pending-approval', async (c) => {
   return c.json({ requests: pendingForUser, total: pendingForUser.length });
 });
 
-// 申請詳細取得（承認ルート含む）
+// 申請詳細取得（承認ルート・履歴含む）
 requestRoutes.get('/:id', async (c) => {
   const id = c.req.param('id');
   const repo = getRepository();
-  const request = await repo.getRequest(id);
+
+  // 並列でデータ取得
+  const [request, historyRecords] = await Promise.all([
+    repo.getRequest(id),
+    repo.getApprovalHistory(id),
+  ]);
 
   if (!request) {
     return c.json({ error: 'Request not found' }, 404);
   }
 
-  const workflow = await repo.getWorkflowWithSteps(request.workflowId);
-  const applicant = await repo.getUser(request.applicantId);
-  const applicantOrg = await repo.getOrganization(request.applicantOrganizationId);
+  // 並列で関連データ取得
+  const [workflow, applicant, applicantOrg] = await Promise.all([
+    repo.getWorkflowWithSteps(request.workflowId),
+    repo.getUser(request.applicantId),
+    repo.getOrganization(request.applicantOrganizationId),
+  ]);
 
   if (!workflow || !applicant || !applicantOrg) {
     return c.json({ error: 'Related data not found' }, 500);
@@ -164,7 +172,18 @@ requestRoutes.get('/:id', async (c) => {
     currentDate: new Date(),
   });
 
-  return c.json({ request, workflow, applicant, route });
+  // 履歴に承認者名を追加
+  const history = await Promise.all(
+    historyRecords.map(async (h) => {
+      const approver = h.approverId ? await repo.getUser(h.approverId) : null;
+      return {
+        ...h,
+        approverName: approver?.name || '不明',
+      };
+    })
+  );
+
+  return c.json({ request, workflow, applicant, route, history });
 });
 
 // 申請作成（下書き）

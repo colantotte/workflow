@@ -441,19 +441,17 @@ async function loadApprovals() {
 // View request detail
 async function viewRequest(requestId) {
   try {
-    const [requestRes, routeRes, historyRes] = await Promise.all([
-      fetch(`${API_BASE}/requests/${requestId}`),
-      fetch(`${API_BASE}/requests/${requestId}/route`),
-      fetch(`${API_BASE}/requests/${requestId}/history`)
-    ]);
+    // 1回のAPI呼び出しで全データ取得
+    const res = await fetch(`${API_BASE}/requests/${requestId}`);
+    const data = await res.json();
 
-    const requestData = await requestRes.json();
-    const routeData = await routeRes.json();
-    const historyData = await historyRes.json();
+    if (!res.ok) {
+      throw new Error(getErrorMessage(data, '申請の取得に失敗しました'));
+    }
 
-    const request = requestData.request;
-    const route = routeData.route || [];
-    const history = historyData.history || [];
+    const request = data.request;
+    const route = data.route || [];
+    const history = data.history || [];
 
     document.getElementById('detailTitle').textContent = request.title;
     document.getElementById('requestDetail').innerHTML = `
