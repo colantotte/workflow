@@ -137,53 +137,66 @@ requestRoutes.get('/pending-approval', async (c) => {
 
 // 申請詳細取得（承認ルート・履歴含む）
 requestRoutes.get('/:id', async (c) => {
-  const id = c.req.param('id');
-  const repo = getRepository();
+  try {
+    const id = c.req.param('id');
+    const repo = getRepository();
 
-  // 並列でデータ取得
-  const [request, historyRecords] = await Promise.all([
-    repo.getRequest(id),
-    repo.getApprovalHistory(id),
-  ]);
+    // 並列でデータ取得
+    const [request, historyRecords] = await Promise.all([
+      repo.getRequest(id),
+      repo.getApprovalHistory(id),
+    ]);
 
-  if (!request) {
-    return c.json({ error: 'Request not found' }, 404);
+    if (!request) {
+      return c.json({ error: 'Request not found' }, 404);
+    }
+
+    // 並列で関連データ取得
+    const [workflow, applicant, applicantOrg] = await Promise.all([
+      repo.getWorkflowWithSteps(request.workflowId),
+      repo.getUser(request.applicantId),
+      repo.getOrganization(request.applicantOrganizationId),
+    ]);
+
+    if (!workflow || !applicant || !applicantOrg) {
+      console.error('Related data not found:', {
+        workflowId: request.workflowId,
+        applicantId: request.applicantId,
+        orgId: request.applicantOrganizationId,
+        hasWorkflow: !!workflow,
+        hasApplicant: !!applicant,
+        hasOrg: !!applicantOrg
+      });
+      return c.json({ error: 'Related data not found' }, 500);
+    }
+
+    // 承認ルートを解決
+    const dataStore = createDataStore();
+    const approvalService = new ApprovalService(dataStore);
+    const route = await approvalService.resolveApprovalRoute({
+      request,
+      applicant,
+      applicantOrganization: applicantOrg,
+      workflow,
+      currentDate: new Date(),
+    });
+
+    // 履歴に承認者名を追加
+    const history = await Promise.all(
+      historyRecords.map(async (h) => {
+        const approver = h.approverId ? await repo.getUser(h.approverId) : null;
+        return {
+          ...h,
+          approverName: approver?.name || '不明',
+        };
+      })
+    );
+
+    return c.json({ request, workflow, applicant, route, history });
+  } catch (err) {
+    console.error('Error fetching request detail:', err);
+    return c.json({ error: 'サーバーエラーが発生しました' }, 500);
   }
-
-  // 並列で関連データ取得
-  const [workflow, applicant, applicantOrg] = await Promise.all([
-    repo.getWorkflowWithSteps(request.workflowId),
-    repo.getUser(request.applicantId),
-    repo.getOrganization(request.applicantOrganizationId),
-  ]);
-
-  if (!workflow || !applicant || !applicantOrg) {
-    return c.json({ error: 'Related data not found' }, 500);
-  }
-
-  // 承認ルートを解決
-  const dataStore = createDataStore();
-  const approvalService = new ApprovalService(dataStore);
-  const route = await approvalService.resolveApprovalRoute({
-    request,
-    applicant,
-    applicantOrganization: applicantOrg,
-    workflow,
-    currentDate: new Date(),
-  });
-
-  // 履歴に承認者名を追加
-  const history = await Promise.all(
-    historyRecords.map(async (h) => {
-      const approver = h.approverId ? await repo.getUser(h.approverId) : null;
-      return {
-        ...h,
-        approverName: approver?.name || '不明',
-      };
-    })
-  );
-
-  return c.json({ request, workflow, applicant, route, history });
 });
 
 // 申請作成（下書き）
