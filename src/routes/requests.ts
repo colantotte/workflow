@@ -37,6 +37,62 @@ requestRoutes.get('/', async (c) => {
   return c.json({ requests, total: requests.length });
 });
 
+// 承認待ち申請一覧（簡易版・高速）
+requestRoutes.get('/pending', async (c) => {
+  const approverId = c.req.query('approverId');
+  if (!approverId) {
+    return c.json({ error: 'approverId query required' }, 400);
+  }
+
+  const repo = getRepository();
+  const dataStore = createDataStore();
+  const approvalService = new ApprovalService(dataStore);
+
+  // pending状態の申請を取得
+  const pendingRequests = await repo.listRequests({ status: 'pending' });
+
+  // 並列で処理して高速化
+  const results = await Promise.all(
+    pendingRequests.map(async (request) => {
+      try {
+        const [workflow, applicant, applicantOrg] = await Promise.all([
+          repo.getWorkflowWithSteps(request.workflowId),
+          repo.getUser(request.applicantId),
+          repo.getOrganization(request.applicantOrganizationId),
+        ]);
+
+        if (!workflow || !applicant || !applicantOrg) return null;
+
+        const route = await approvalService.resolveApprovalRoute({
+          request,
+          applicant,
+          applicantOrganization: applicantOrg,
+          workflow,
+          currentDate: new Date(),
+        });
+
+        const currentStepInfo = route.find(
+          (step) => step.stepOrder === request.currentStep && step.status === 'pending'
+        );
+
+        if (currentStepInfo?.approver?.id === approverId) {
+          return {
+            ...request,
+            applicantName: applicant.name,
+            workflowName: workflow.name,
+          };
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  const requests = results.filter((r): r is NonNullable<typeof r> => r !== null);
+  return c.json({ requests, total: requests.length });
+});
+
 // 自分の承認待ち申請一覧
 requestRoutes.get('/pending-approval', async (c) => {
   const userId = c.req.header('X-User-Id');

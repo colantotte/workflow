@@ -79,8 +79,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             larkUser = JSON.parse(larkUserData);
           }
           showCurrentUser();
-          loadRequests();
-          loadApprovals();
+          // 並列でデータ読み込み
+          Promise.all([loadRequests(), loadApprovals()]);
         } catch (e) {
           console.error('Failed to parse saved user:', e);
           localStorage.removeItem('currentUser');
