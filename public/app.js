@@ -383,9 +383,9 @@ async function loadRequests() {
         <div class="card-footer">
           <span class="card-meta">ステップ ${request.currentStep}</span>
           <div class="card-actions">
-            <button class="btn btn-sm" onclick="viewRequest('${request.id}')">詳細</button>
+            <button class="btn btn-sm" onclick="viewRequest('${request.id}', this)">詳細</button>
             ${request.status === 'draft' ? `
-              <button class="btn btn-sm btn-primary" onclick="submitRequest('${request.id}')">提出</button>
+              <button class="btn btn-sm btn-primary" onclick="submitRequest('${request.id}', this)">提出</button>
             ` : ''}
           </div>
         </div>
@@ -425,10 +425,10 @@ async function loadApprovals() {
         <div class="card-footer">
           <span class="card-meta">ステップ ${request.currentStep}</span>
           <div class="card-actions">
-            <button class="btn btn-sm" onclick="viewRequest('${request.id}')">詳細</button>
-            <button class="btn btn-sm btn-success" onclick="showApprovalAction('${request.id}', 'approve')">承認</button>
-            <button class="btn btn-sm btn-danger" onclick="showApprovalAction('${request.id}', 'reject')">却下</button>
-            <button class="btn btn-sm btn-warning" onclick="showApprovalAction('${request.id}', 'remand')">差戻し</button>
+            <button class="btn btn-sm" onclick="viewRequest('${request.id}', this)">詳細</button>
+            <button class="btn btn-sm btn-success" onclick="showApprovalAction('${request.id}', 'approve', this)">承認</button>
+            <button class="btn btn-sm btn-danger" onclick="showApprovalAction('${request.id}', 'reject', this)">却下</button>
+            <button class="btn btn-sm btn-warning" onclick="showApprovalAction('${request.id}', 'remand', this)">差戻し</button>
           </div>
         </div>
       </div>
@@ -439,7 +439,12 @@ async function loadApprovals() {
 }
 
 // View request detail
-async function viewRequest(requestId) {
+async function viewRequest(requestId, buttonElement) {
+  // ローディング状態を表示
+  if (buttonElement) {
+    setButtonLoading(buttonElement, true);
+  }
+
   try {
     // 1回のAPI呼び出しで全データ取得
     const res = await fetch(`${API_BASE}/requests/${requestId}`);
@@ -531,7 +536,11 @@ async function viewRequest(requestId) {
 
     showModal('requestDetailModal');
   } catch (err) {
-    alert('申請の取得に失敗しました');
+    alert(getErrorMessage(err, '申請の取得に失敗しました'));
+  } finally {
+    if (buttonElement) {
+      setButtonLoading(buttonElement, false);
+    }
   }
 }
 
