@@ -326,8 +326,14 @@ requestRoutes.post(
   zValidator(
     'json',
     z.object({
-      comment: z.string().max(1000).optional(),
-    })
+      comment: z.string().max(1000, 'コメントは1000文字以内で入力してください').optional(),
+    }),
+    (result, c) => {
+      if (!result.success) {
+        return c.json({ error: result.error.issues[0]?.message || 'バリデーションエラー' }, 400);
+      }
+      return undefined;
+    }
   ),
   async (c) => {
     const id = c.req.param('id');
@@ -467,8 +473,14 @@ requestRoutes.post(
   zValidator(
     'json',
     z.object({
-      comment: z.string().min(1).max(1000),
-    })
+      comment: z.string().min(1, 'コメントは必須です').max(1000, 'コメントは1000文字以内で入力してください'),
+    }),
+    (result, c) => {
+      if (!result.success) {
+        return c.json({ error: result.error.issues[0]?.message || 'バリデーションエラー' }, 400);
+      }
+      return undefined;
+    }
   ),
   async (c) => {
     const id = c.req.param('id');
@@ -526,9 +538,15 @@ requestRoutes.post(
   zValidator(
     'json',
     z.object({
-      comment: z.string().min(1).max(1000),
+      comment: z.string().min(1, 'コメントは必須です').max(1000, 'コメントは1000文字以内で入力してください'),
       toStep: z.number().int().min(0).optional(),
-    })
+    }),
+    (result, c) => {
+      if (!result.success) {
+        return c.json({ error: result.error.issues[0]?.message || 'バリデーションエラー' }, 400);
+      }
+      return undefined;
+    }
   ),
   async (c) => {
     const id = c.req.param('id');

@@ -129,7 +129,7 @@ async function startOAuthFlow() {
   } catch (err) {
     console.error('Failed to start OAuth flow:', err);
     userInfoDiv.innerHTML = '<span class="lark-user" style="color: var(--danger);">認証エラー</span>';
-    showError('認証の開始に失敗しました: ' + err.message);
+    showError('認証の開始に失敗しました: ' + getErrorMessage(err, '不明なエラー'));
   }
 }
 
@@ -161,11 +161,12 @@ async function handleOAuthCallback(code) {
     } else {
       console.error('OAuth callback failed:', data);
       // Show detailed error message
-      let errorMsg = data.message || data.error || '認証に失敗しました';
+      let errorMsg = getErrorMessage(data, '認証に失敗しました');
       if (data.larkUser) {
-        errorMsg += `\n\nLarkユーザー: ${data.larkUser.name || data.larkUser.userId}`;
+        const userName = data.larkUser.name || data.larkUser.userId || '不明';
+        errorMsg += `\n\nLarkユーザー: ${userName}`;
       }
-      if (data.details) {
+      if (data.details && typeof data.details === 'string') {
         errorMsg += `\n詳細: ${data.details}`;
       }
       showError(errorMsg);
@@ -173,7 +174,7 @@ async function handleOAuthCallback(code) {
     }
   } catch (err) {
     console.error('OAuth callback error:', err);
-    showError('認証処理中にエラーが発生しました: ' + err.message);
+    showError('認証処理中にエラーが発生しました: ' + getErrorMessage(err, '不明なエラー'));
   }
 }
 
@@ -218,10 +219,11 @@ async function syncLarkUser(larkUserInfo) {
 // Show error message
 function showError(message) {
   const main = document.querySelector('.main');
+  const displayMessage = typeof message === 'string' ? message : getErrorMessage(message, 'エラーが発生しました');
   main.innerHTML = `
     <div class="empty-state">
       <div class="empty-state-icon">&#9888;</div>
-      <p>${escapeHtml(message)}</p>
+      <p>${escapeHtml(displayMessage)}</p>
     </div>
   `;
 }
@@ -745,8 +747,8 @@ async function createRequest(event) {
     });
 
     if (!createRes.ok) {
-      const err = await createRes.json();
-      throw new Error(err.error || '申請の作成に失敗しました');
+      const errData = await createRes.json().catch(() => ({}));
+      throw new Error(getErrorMessage(errData, '申請の作成に失敗しました'));
     }
 
     const createData = await createRes.json();
@@ -761,8 +763,8 @@ async function createRequest(event) {
       });
 
       if (!submitRes.ok) {
-        const err = await submitRes.json();
-        throw new Error(err.error || '申請の提出に失敗しました');
+        const errData = await submitRes.json().catch(() => ({}));
+        throw new Error(getErrorMessage(errData, '申請の提出に失敗しました'));
       }
 
       alert('申請を提出しました');
@@ -773,7 +775,7 @@ async function createRequest(event) {
     closeModal('newRequestModal');
     loadRequests();
   } catch (err) {
-    alert(err.message);
+    alert(getErrorMessage(err, '申請処理中にエラーが発生しました'));
   } finally {
     isProcessing = false;
     allButtons.forEach(btn => setButtonLoading(btn, false));
@@ -798,14 +800,14 @@ async function submitRequest(requestId, buttonElement) {
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || '申請の提出に失敗しました');
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(getErrorMessage(errData, '申請の提出に失敗しました'));
     }
 
     alert('申請を提出しました');
     loadRequests();
   } catch (err) {
-    alert(err.message);
+    alert(getErrorMessage(err, '申請の提出に失敗しました'));
   } finally {
     isProcessing = false;
     if (buttonElement) setButtonLoading(buttonElement, false);
@@ -823,6 +825,23 @@ function showApprovalAction(requestId, action) {
     reject: '却下',
     remand: '差戻し'
   };
+
+  // Comment is required for reject and remand actions
+  const commentLabel = document.querySelector('#approvalActionForm label[for="actionComment"]');
+  const commentTextarea = document.getElementById('actionComment');
+  const isCommentRequired = action === 'reject' || action === 'remand';
+
+  if (commentLabel) {
+    commentLabel.innerHTML = isCommentRequired
+      ? 'コメント <span style="color: var(--danger);">*必須</span>'
+      : 'コメント（任意）';
+  }
+  if (commentTextarea) {
+    commentTextarea.required = isCommentRequired;
+    commentTextarea.placeholder = isCommentRequired
+      ? 'コメントを入力してください（必須）'
+      : 'コメントを入力（任意）';
+  }
 
   document.getElementById('approvalActionTitle').textContent = titles[action];
   document.getElementById('actionSubmitBtn').textContent = titles[action];
@@ -842,27 +861,32 @@ async function submitApprovalAction(event) {
     return;
   }
 
+  const requestId = document.getElementById('actionRequestId').value;
+  const action = document.getElementById('actionType').value;
+  const comment = document.getElementById('actionComment').value.trim();
+
+  // 却下・差戻しはコメント必須
+  if ((action === 'reject' || action === 'remand') && !comment) {
+    alert('却下・差戻しの場合はコメントが必須です');
+    return;
+  }
+
   const submitBtn = document.getElementById('actionSubmitBtn');
   isProcessing = true;
   setButtonLoading(submitBtn, true);
 
-  const requestId = document.getElementById('actionRequestId').value;
-  const action = document.getElementById('actionType').value;
-  const comment = document.getElementById('actionComment').value;
-
   try {
     const res = await fetch(`${API_BASE}/requests/${requestId}/${action}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.id },
       body: JSON.stringify({
-        approverId: currentUser.id,
-        comment: comment || null
+        comment: comment || undefined
       })
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || `${action}に失敗しました`);
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(getErrorMessage(errData, `${action}に失敗しました`));
     }
 
     const actionLabels = {
@@ -876,7 +900,7 @@ async function submitApprovalAction(event) {
     loadRequests();
     loadApprovals();
   } catch (err) {
-    alert(err.message);
+    alert(getErrorMessage(err, '処理中にエラーが発生しました'));
   } finally {
     isProcessing = false;
     setButtonLoading(submitBtn, false);
@@ -893,10 +917,40 @@ function closeModal(id) {
 }
 
 // Utility functions
+function getErrorMessage(err, defaultMsg = 'エラーが発生しました') {
+  if (!err) return defaultMsg;
+  if (typeof err === 'string') return err;
+
+  // Standard Error object
+  if (typeof err.message === 'string') return err.message;
+
+  // API error response with string error
+  if (typeof err.error === 'string') return err.error;
+
+  // Zod validation error (from @hono/zod-validator)
+  if (err.error && typeof err.error === 'object') {
+    // Zod error with issues array
+    if (Array.isArray(err.error.issues) && err.error.issues.length > 0) {
+      return err.error.issues.map(issue => issue.message).join(', ');
+    }
+    // Zod error with name property
+    if (err.error.name === 'ZodError' && err.error.message) {
+      return typeof err.error.message === 'string' ? err.error.message : defaultMsg;
+    }
+  }
+
+  // Nested success: false pattern
+  if (err.success === false && err.error) {
+    return getErrorMessage(err.error, defaultMsg);
+  }
+
+  return defaultMsg;
+}
+
 function escapeHtml(str) {
   if (!str) return '';
   const div = document.createElement('div');
-  div.textContent = str;
+  div.textContent = String(str);
   return div.innerHTML;
 }
 
