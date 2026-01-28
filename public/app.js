@@ -4,9 +4,38 @@ let users = [];
 let workflows = [];
 let larkUser = null;
 let isLarkEnvironment = false;
+let isProcessing = false; // 処理中フラグ
 
 // API Base URL
 const API_BASE = '/api';
+
+// ボタンのローディング状態を設定
+function setButtonLoading(button, loading) {
+  if (!button) return;
+  if (loading) {
+    button.disabled = true;
+    button.dataset.originalText = button.textContent;
+    button.textContent = '処理中...';
+    button.classList.add('loading');
+  } else {
+    button.disabled = false;
+    button.textContent = button.dataset.originalText || button.textContent;
+    button.classList.remove('loading');
+  }
+}
+
+// 二重クリック防止ラッパー
+async function preventDoubleClick(fn, button) {
+  if (isProcessing) return;
+  isProcessing = true;
+  setButtonLoading(button, true);
+  try {
+    await fn();
+  } finally {
+    isProcessing = false;
+    setButtonLoading(button, false);
+  }
+}
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
@@ -678,6 +707,9 @@ function collectFormData() {
 async function createRequest(event) {
   event.preventDefault();
 
+  // 二重クリック防止
+  if (isProcessing) return;
+
   const form = event.target;
   const submitButton = event.submitter;
   const action = submitButton.value;
@@ -689,6 +721,11 @@ async function createRequest(event) {
     alert('ワークフローと件名は必須です');
     return;
   }
+
+  // ボタンをローディング状態に
+  isProcessing = true;
+  const allButtons = form.querySelectorAll('button[type="submit"]');
+  allButtons.forEach(btn => setButtonLoading(btn, true));
 
   // Collect dynamic form data
   const formData = collectFormData();
@@ -737,14 +774,21 @@ async function createRequest(event) {
     loadRequests();
   } catch (err) {
     alert(err.message);
+  } finally {
+    isProcessing = false;
+    allButtons.forEach(btn => setButtonLoading(btn, false));
   }
 }
 
-async function submitRequest(requestId) {
+async function submitRequest(requestId, buttonElement) {
+  if (isProcessing) return;
   if (!currentUser) {
     alert('ユーザーを選択してください');
     return;
   }
+
+  isProcessing = true;
+  if (buttonElement) setButtonLoading(buttonElement, true);
 
   try {
     const res = await fetch(`${API_BASE}/requests/${requestId}/submit`, {
@@ -762,6 +806,9 @@ async function submitRequest(requestId) {
     loadRequests();
   } catch (err) {
     alert(err.message);
+  } finally {
+    isProcessing = false;
+    if (buttonElement) setButtonLoading(buttonElement, false);
   }
 }
 
@@ -787,10 +834,17 @@ function showApprovalAction(requestId, action) {
 async function submitApprovalAction(event) {
   event.preventDefault();
 
+  // 二重クリック防止
+  if (isProcessing) return;
+
   if (!currentUser) {
     alert('ユーザーを選択してください');
     return;
   }
+
+  const submitBtn = document.getElementById('actionSubmitBtn');
+  isProcessing = true;
+  setButtonLoading(submitBtn, true);
 
   const requestId = document.getElementById('actionRequestId').value;
   const action = document.getElementById('actionType').value;
@@ -823,6 +877,9 @@ async function submitApprovalAction(event) {
     loadApprovals();
   } catch (err) {
     alert(err.message);
+  } finally {
+    isProcessing = false;
+    setButtonLoading(submitBtn, false);
   }
 }
 

@@ -173,6 +173,18 @@ body {
   border-color: var(--danger);
 }
 
+/* ボタンのローディング状態 */
+.btn:disabled,
+.btn.loading {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn.loading {
+  position: relative;
+}
+
 .btn-sm {
   padding: 4px 8px;
   font-size: 12px;

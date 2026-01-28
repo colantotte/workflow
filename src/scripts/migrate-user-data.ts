@@ -6,12 +6,13 @@ import { initLarkClient, getLarkClient, LarkBaseClient } from '../lark/client.js
 
 const LARK_APP_ID = process.env.LARK_APP_ID ?? '';
 const LARK_APP_SECRET = process.env.LARK_APP_SECRET ?? '';
-const LARK_BASE_APP_TOKEN = process.env.LARK_BASE_APP_TOKEN ?? '';
+const LARK_BASE_APP_TOKEN = 'MTRGbiJvFaA8eCsQeMBjMu4Lpsc';
 
+// 正しいテーブルID
 const TABLES = {
-  users: process.env.LARK_TABLE_USERS ?? 'tblKjUDl9ysBlZot',
-  userPositions: process.env.LARK_TABLE_USER_POSITIONS ?? 'tblGSAYD0p99ZpEf',
-  userApprovalRoles: process.env.LARK_TABLE_USER_APPROVAL_ROLES ?? 'tblbHimZpnz1tKzB',
+  users: 'tblOldYxIw0Yjix6',           // ユーザー
+  userPositions: 'tblFGW04ht3CGmYS',    // ユーザー役職
+  userApprovalRoles: 'tblOv1swrQozXeYE', // ユーザー承認ロール
 };
 
 async function main() {
