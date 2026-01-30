@@ -343,9 +343,9 @@ async function viewWorkflow(workflowId) {
     const data = await res.json();
     const workflow = data.workflow;
 
-    alert(`ワークフロー: ${workflow.name}\nステップ数: ${workflow.steps?.length || 0}`);
+    showAlert(`ワークフロー: ${workflow.name}\nステップ数: ${workflow.steps?.length || 0}`);
   } catch (err) {
-    alert('ワークフローの取得に失敗しました');
+    showAlert('ワークフローの取得に失敗しました');
   }
 }
 
@@ -536,7 +536,7 @@ async function viewRequest(requestId, buttonElement) {
 
     showModal('requestDetailModal');
   } catch (err) {
-    alert(getErrorMessage(err, '申請の取得に失敗しました'));
+    showAlert(getErrorMessage(err, '申請の取得に失敗しました'));
   } finally {
     if (buttonElement) {
       setButtonLoading(buttonElement, false);
@@ -547,7 +547,7 @@ async function viewRequest(requestId, buttonElement) {
 // New request
 function showNewRequestModal() {
   if (!currentUser) {
-    alert('ユーザーを選択してください');
+    showAlert('ユーザーを選択してください');
     return;
   }
 
@@ -727,7 +727,7 @@ async function createRequest(event) {
   const title = document.getElementById('requestTitle').value;
 
   if (!workflowId || !title) {
-    alert('ワークフローと件名は必須です');
+    showAlert('ワークフローと件名は必須です');
     return;
   }
 
@@ -774,15 +774,15 @@ async function createRequest(event) {
         throw new Error(getErrorMessage(errData, '申請の提出に失敗しました'));
       }
 
-      alert('申請を提出しました');
+      showAlert('申請を提出しました');
     } else {
-      alert('下書きを保存しました');
+      showAlert('下書きを保存しました');
     }
 
     closeModal('newRequestModal');
     loadRequests();
   } catch (err) {
-    alert(getErrorMessage(err, '申請処理中にエラーが発生しました'));
+    showAlert(getErrorMessage(err, '申請処理中にエラーが発生しました'));
   } finally {
     isProcessing = false;
     allButtons.forEach(btn => setButtonLoading(btn, false));
@@ -792,7 +792,7 @@ async function createRequest(event) {
 async function submitRequest(requestId, buttonElement) {
   if (isProcessing) return;
   if (!currentUser) {
-    alert('ユーザーを選択してください');
+    showAlert('ユーザーを選択してください');
     return;
   }
 
@@ -811,10 +811,10 @@ async function submitRequest(requestId, buttonElement) {
       throw new Error(getErrorMessage(errData, '申請の提出に失敗しました'));
     }
 
-    alert('申請を提出しました');
+    showAlert('申請を提出しました');
     loadRequests();
   } catch (err) {
-    alert(getErrorMessage(err, '申請の提出に失敗しました'));
+    showAlert(getErrorMessage(err, '申請の提出に失敗しました'));
   } finally {
     isProcessing = false;
     if (buttonElement) setButtonLoading(buttonElement, false);
@@ -864,7 +864,7 @@ async function submitApprovalAction(event) {
   if (isProcessing) return;
 
   if (!currentUser) {
-    alert('ユーザーを選択してください');
+    showAlert('ユーザーを選択してください');
     return;
   }
 
@@ -874,7 +874,7 @@ async function submitApprovalAction(event) {
 
   // 却下・差戻しはコメント必須
   if ((action === 'reject' || action === 'remand') && !comment) {
-    alert('却下・差戻しの場合はコメントが必須です');
+    showAlert('却下・差戻しの場合はコメントが必須です');
     return;
   }
 
@@ -902,12 +902,12 @@ async function submitApprovalAction(event) {
       remand: '差し戻しました'
     };
 
-    alert(actionLabels[action]);
+    showAlert(actionLabels[action]);
     closeModal('approvalActionModal');
     loadRequests();
     loadApprovals();
   } catch (err) {
-    alert(getErrorMessage(err, '処理中にエラーが発生しました'));
+    showAlert(getErrorMessage(err, '処理中にエラーが発生しました'));
   } finally {
     isProcessing = false;
     setButtonLoading(submitBtn, false);
@@ -921,6 +921,16 @@ function showModal(id) {
 
 function closeModal(id) {
   document.getElementById(id).classList.remove('show');
+}
+
+// カスタムアラート（URLを表示しない）
+function showAlert(message) {
+  document.getElementById('customAlertMessage').textContent = message;
+  document.getElementById('customAlertModal').classList.add('show');
+}
+
+function closeCustomAlert() {
+  document.getElementById('customAlertModal').classList.remove('show');
 }
 
 // Utility functions
