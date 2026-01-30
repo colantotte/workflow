@@ -519,19 +519,35 @@ async function viewRequest(requestId, buttonElement) {
         </div>
       ` : ''}
 
-      ${request.status === 'draft' ? `
+      ${request.status === 'draft' && request.applicantId === currentUser?.id ? `
         <div class="form-actions">
           <button class="btn btn-primary" onclick="submitRequest('${request.id}'); closeModal('requestDetailModal');">提出する</button>
         </div>
       ` : ''}
 
-      ${request.status === 'pending' && currentUser ? `
-        <div class="form-actions">
-          <button class="btn btn-success" onclick="showApprovalAction('${request.id}', 'approve'); closeModal('requestDetailModal');">承認</button>
-          <button class="btn btn-danger" onclick="showApprovalAction('${request.id}', 'reject'); closeModal('requestDetailModal');">却下</button>
-          <button class="btn btn-warning" onclick="showApprovalAction('${request.id}', 'remand'); closeModal('requestDetailModal');">差戻し</button>
-        </div>
-      ` : ''}
+      ${(() => {
+        // 現在のステップの承認者かチェック
+        const currentStep = route.find(s => s.stepOrder === request.currentStep && s.status === 'pending');
+        const isApprover = currentStep?.approver?.id === currentUser?.id;
+        const isApplicant = request.applicantId === currentUser?.id;
+
+        if (request.status === 'pending' && isApprover) {
+          return `
+            <div class="form-actions">
+              <button class="btn btn-success" onclick="showApprovalAction('${request.id}', 'approve'); closeModal('requestDetailModal');">承認</button>
+              <button class="btn btn-danger" onclick="showApprovalAction('${request.id}', 'reject'); closeModal('requestDetailModal');">却下</button>
+              <button class="btn btn-warning" onclick="showApprovalAction('${request.id}', 'remand'); closeModal('requestDetailModal');">差戻し</button>
+            </div>
+          `;
+        } else if (request.status === 'pending' && isApplicant) {
+          return `
+            <div class="form-actions">
+              <button class="btn" onclick="cancelRequest('${request.id}'); closeModal('requestDetailModal');">取り消し</button>
+            </div>
+          `;
+        }
+        return '';
+      })()}
     `;
 
     showModal('requestDetailModal');
@@ -818,6 +834,40 @@ async function submitRequest(requestId, buttonElement) {
   } finally {
     isProcessing = false;
     if (buttonElement) setButtonLoading(buttonElement, false);
+  }
+}
+
+// 申請取り消し（申請者のみ）
+async function cancelRequest(requestId) {
+  if (isProcessing) return;
+  if (!currentUser) {
+    showAlert('ユーザーを選択してください');
+    return;
+  }
+
+  if (!confirm('この申請を取り消しますか？')) {
+    return;
+  }
+
+  isProcessing = true;
+
+  try {
+    const res = await fetch(`${API_BASE}/requests/${requestId}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.id }
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(getErrorMessage(errData, '申請の取り消しに失敗しました'));
+    }
+
+    showAlert('申請を取り消しました');
+    loadRequests();
+  } catch (err) {
+    showAlert(getErrorMessage(err, '申請の取り消しに失敗しました'));
+  } finally {
+    isProcessing = false;
   }
 }
 
