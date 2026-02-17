@@ -113,6 +113,46 @@ const TABLES = [
       { field_name: 'skip_reason', type: 3 }, // vacant, same_person, not_required
     ],
   },
+  {
+    name: '経路マスタ',
+    fields: [
+      { field_name: 'name', type: 1 },
+      { field_name: 'description', type: 1 },
+      { field_name: 'workflow_id', type: 1 },
+      { field_name: 'route_type', type: 3 }, // basic, by_position, by_department, by_individual
+      { field_name: 'priority', type: 2 },
+      { field_name: 'target_position_id', type: 1 },
+      { field_name: 'target_department_id', type: 1 },
+      { field_name: 'target_user_id', type: 1 },
+      { field_name: 'is_standard', type: 7 },
+      { field_name: 'is_active', type: 7 },
+      { field_name: 'conditions', type: 1 }, // JSON
+    ],
+  },
+  {
+    name: '経路ステップ',
+    fields: [
+      { field_name: 'route_master_id', type: 1 },
+      { field_name: 'step_order', type: 2 },
+      { field_name: 'step_type', type: 3 }, // position, role, specific_user
+      { field_name: 'position_id', type: 1 },
+      { field_name: 'approval_role_id', type: 1 },
+      { field_name: 'specific_user_id', type: 1 },
+      { field_name: 'label', type: 1 },
+      { field_name: 'is_required', type: 7 },
+      { field_name: 'skip_if_same_person', type: 7 },
+      { field_name: 'skip_if_vacant', type: 7 },
+      { field_name: 'conditions', type: 1 }, // JSON
+      { field_name: 'step_role_type', type: 3 }, // approver, final_approver, handler, notifier
+      { field_name: 'multi_approver_mode', type: 3 }, // single, all, group, notify
+      { field_name: 'required_approver_count', type: 2 },
+      { field_name: 'deadline_days', type: 2 },
+      { field_name: 'deadline_auto_action', type: 3 }, // none, auto_approve, auto_reject
+      { field_name: 'remand_mode', type: 3 }, // require_reapproval, choose_at_remand, no_reapproval
+      { field_name: 'allow_self_approval', type: 7 },
+      { field_name: 'editable_fields', type: 1 }, // JSON
+    ],
+  },
 ];
 
 async function main() {

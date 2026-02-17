@@ -1043,6 +1043,11 @@ export class LarkBaseRepository {
 
   // ==================== 経路ステップ ====================
 
+  async getAllRouteSteps(): Promise<RouteStep[]> {
+    const records = await this.client.getAllRecords(TABLES.routeSteps);
+    return records.map(r => this.mapRouteStep(r));
+  }
+
   async getRouteSteps(routeMasterId: string): Promise<RouteStep[]> {
     const filter = `CurrentValue.[route_master_id] = "${routeMasterId}"`;
     const records = await this.client.getAllRecords(TABLES.routeSteps, filter);

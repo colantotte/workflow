@@ -101,15 +101,25 @@ routeMasters.get('/export-all', async (c) => {
   const workflows = await repo.listWorkflows();
   const wfMap = new Map(workflows.map(w => [w.id, w.name]));
 
+  // 全ステップを一括取得してマスタID別にグループ化（N+1回避）
+  let allSteps: RouteStep[] = [];
+  try {
+    allSteps = await repo.getAllRouteSteps();
+  } catch { /* ignore */ }
+  const stepsByMaster = new Map<string, RouteStep[]>();
+  for (const step of allSteps) {
+    const list = stepsByMaster.get(step.routeMasterId) ?? [];
+    list.push(step);
+    stepsByMaster.set(step.routeMasterId, list);
+  }
+
   const rows: string[][] = [];
 
   for (const master of masters) {
-    const full = await repo.getRouteMasterWithSteps(master.id);
-    if (!full) continue;
-
     const wfName = wfMap.get(master.workflowId) || master.workflowId;
+    const steps = (stepsByMaster.get(master.id) ?? []).sort((a, b) => a.stepOrder - b.stepOrder);
 
-    if (full.steps.length === 0) {
+    if (steps.length === 0) {
       rows.push([
         master.name, master.description || '', wfName,
         ROUTE_TYPE_LABELS[master.routeType] || master.routeType,
@@ -117,8 +127,8 @@ routeMasters.get('/export-all', async (c) => {
         '', '', '', '', '', '', '', '',
       ]);
     } else {
-      for (let i = 0; i < full.steps.length; i++) {
-        const step = full.steps[i];
+      for (let i = 0; i < steps.length; i++) {
+        const step = steps[i];
         const isFirstStep = i === 0;
         rows.push([
           isFirstStep ? master.name : '',
