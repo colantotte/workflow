@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config({ override: true });
 import { initLarkClient } from '../lark/client.js';
 import { getRepository } from '../repositories/lark-base.repository.js';
+import type { RouteStep } from '../models/index.js';
 
 const LARK_APP_ID = process.env.LARK_APP_ID ?? '';
 const LARK_APP_SECRET = process.env.LARK_APP_SECRET ?? '';
@@ -78,7 +79,7 @@ async function main() {
         isRequired: step.isRequired,
         skipIfSamePerson: step.skipIfSamePerson,
         skipIfVacant: step.skipIfVacant,
-        conditions: step.conditions,
+        conditions: step.conditions as RouteStep['conditions'],
         stepRoleType: step.stepRoleType ?? 'approver',
         multiApproverMode: step.multiApproverMode ?? 'single',
         requiredApproverCount: step.requiredApproverCount ?? null,
