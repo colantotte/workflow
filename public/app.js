@@ -116,6 +116,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (larkUserData) larkUser = JSON.parse(larkUserData);
           showCurrentUser();
           Promise.all([loadRequests(), loadApprovals()]);
+          // APIから最新のロール情報を取得して同期
+          refreshCurrentUserRole();
         } catch (e) {
           console.error('Failed to parse saved user:', e);
           localStorage.removeItem('currentUser');
@@ -193,6 +195,24 @@ function showCurrentUser() {
   const roleLabel = roleLabels[role] || '一般';
   userInfoDiv.innerHTML = `<span class="lark-user">${escapeHtml(displayName)}</span> <span id="userRole" class="role-badge role-${role}">${roleLabel}</span>`;
   applyPermissions();
+}
+
+// APIから最新のユーザー情報を取得してロールを同期
+async function refreshCurrentUserRole() {
+  if (!currentUser?.id) return;
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, { headers: apiHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.user && data.user.role !== currentUser.role) {
+        currentUser.role = data.user.role;
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        showCurrentUser();
+      }
+    }
+  } catch (e) {
+    console.error('Failed to refresh user role:', e);
+  }
 }
 
 function showError(message) {
