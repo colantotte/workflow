@@ -1,7 +1,8 @@
 /**
  * データマイグレーション: 既存の user_id を user_link に移行
  */
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 import { initLarkClient, getLarkClient, LarkBaseClient } from '../lark/client.js';
 
 const LARK_APP_ID = process.env.LARK_APP_ID ?? '';

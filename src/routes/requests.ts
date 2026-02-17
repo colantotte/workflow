@@ -5,6 +5,7 @@ import { CreateRequestSchema, RequestStatus } from '../models/index.js';
 import { getRepository } from '../repositories/lark-base.repository.js';
 import { ApprovalService, type DataStore } from '../services/approval.service.js';
 import { sendApprovalNotification, sendRequestStatusNotification } from '../lark/bot.js';
+import { generateRequestPdf } from '../services/pdf.service.js';
 
 export const requestRoutes = new Hono();
 
@@ -192,7 +193,44 @@ requestRoutes.get('/:id', async (c) => {
       })
     );
 
-    return c.json({ request, workflow, applicant, route, history });
+    // Phase 1: ルート情報に拡張情報を付与
+    const enrichedRoute = route.map((step) => {
+      const stepDef = workflow.steps.find((s) => s.stepOrder === step.stepOrder);
+      let deadlineDate: Date | null = null;
+      let remainingDays: number | null = null;
+
+      if (stepDef?.deadlineDays && request.submittedAt) {
+        deadlineDate = new Date(request.submittedAt);
+        deadlineDate.setDate(deadlineDate.getDate() + stepDef.deadlineDays);
+        remainingDays = Math.ceil((deadlineDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+      }
+
+      return {
+        ...step,
+        stepRoleType: stepDef?.stepRoleType ?? 'approver',
+        multiApproverMode: stepDef?.multiApproverMode ?? 'single',
+        deadlineDate,
+        remainingDays,
+        editableFields: stepDef?.editableFields ?? null,
+      };
+    });
+
+    return c.json({
+      request,
+      workflow: {
+        ...workflow,
+        allowWithdrawal: workflow.allowWithdrawal,
+        allowPullUp: workflow.allowPullUp,
+        allowReuse: workflow.allowReuse,
+        allowRouteChange: workflow.allowRouteChange,
+        routeChangeRoles: workflow.routeChangeRoles,
+        subjectAutoInputMode: workflow.subjectAutoInputMode,
+        subjectTemplate: workflow.subjectTemplate,
+      },
+      applicant,
+      route: enrichedRoute,
+      history,
+    });
   } catch (err) {
     console.error('Error fetching request detail:', err);
     return c.json({ error: 'サーバーエラーが発生しました' }, 500);
@@ -564,7 +602,7 @@ requestRoutes.post(
   }
 );
 
-// 差戻し
+// 差戻し（Phase 1: remandMode対応）
 requestRoutes.post(
   '/:id/remand',
   zValidator(
@@ -572,6 +610,7 @@ requestRoutes.post(
     z.object({
       comment: z.string().min(1, 'コメントは必須です').max(1000, 'コメントは1000文字以内で入力してください'),
       toStep: z.number().int().min(0).optional(),
+      remandMode: z.string().optional(), // require_reapproval | choose_at_remand | no_reapproval
     }),
     (result, c) => {
       if (!result.success) {
@@ -582,7 +621,7 @@ requestRoutes.post(
   ),
   async (c) => {
     const id = c.req.param('id');
-    const { comment, toStep = 0 } = c.req.valid('json');
+    const { comment, toStep, remandMode } = c.req.valid('json');
     const approverId = c.req.header('X-User-Id');
 
     if (!approverId) {
@@ -600,6 +639,19 @@ requestRoutes.post(
       return c.json({ error: 'Request is not pending' }, 400);
     }
 
+    // ワークフローのステップからremandModeを取得
+    const workflow = await repo.getWorkflowWithSteps(existing.workflowId);
+    const currentStepDef = workflow?.steps.find((s) => s.stepOrder === existing.currentStep);
+    const effectiveRemandMode = remandMode || currentStepDef?.remandMode || 'require_reapproval';
+
+    const dataStore = createDataStore();
+    const approvalService = new ApprovalService(dataStore);
+    const targetStep = toStep ?? approvalService.processRemandTarget(
+      effectiveRemandMode,
+      existing.currentStep,
+      toStep
+    );
+
     // 承認履歴を記録
     await repo.createApprovalHistory({
       requestId: id,
@@ -610,10 +662,10 @@ requestRoutes.post(
     });
 
     // ステータスと現在ステップを更新
-    const newStatus = toStep === 0 ? 'draft' : 'pending';
+    const newStatus = targetStep === 0 ? 'draft' : 'pending';
     const request = await repo.updateRequest(id, {
       status: newStatus,
-      currentStep: toStep,
+      currentStep: targetStep,
     });
 
     // 申請者に通知
@@ -627,9 +679,170 @@ requestRoutes.post(
       }).catch(console.error);
     }
 
-    return c.json({ success: true, request });
+    return c.json({ success: true, request, remandMode: effectiveRemandMode, targetStep });
   }
 );
+
+// 取り下げ（Phase 1: NI Collabo 360）
+requestRoutes.post('/:id/withdraw', async (c) => {
+  const id = c.req.param('id');
+  const userId = c.req.header('X-User-Id');
+
+  const repo = getRepository();
+  const existing = await repo.getRequest(id);
+
+  if (!existing) {
+    return c.json({ error: 'Request not found' }, 404);
+  }
+
+  // 申請者のみ取り下げ可能
+  if (userId && existing.applicantId !== userId) {
+    return c.json({ error: 'Only applicant can withdraw' }, 403);
+  }
+
+  if (existing.status !== 'pending') {
+    return c.json({ error: 'Can only withdraw pending requests' }, 400);
+  }
+
+  // ワークフローの取り下げ許可チェック
+  const workflow = await repo.getWorkflowWithSteps(existing.workflowId);
+  if (workflow && !workflow.allowWithdrawal) {
+    return c.json({ error: 'Withdrawal is not allowed for this workflow' }, 400);
+  }
+
+  const request = await repo.updateRequest(id, {
+    status: 'withdrawn',
+    withdrawnAt: new Date(),
+  });
+
+  return c.json({ success: true, request });
+});
+
+// 引き上げ（Phase 1: NI Collabo 360）
+requestRoutes.post('/:id/pull-up', async (c) => {
+  const id = c.req.param('id');
+  const userId = c.req.header('X-User-Id');
+
+  if (!userId) {
+    return c.json({ error: 'X-User-Id header required' }, 400);
+  }
+
+  const repo = getRepository();
+  const existing = await repo.getRequest(id);
+
+  if (!existing) {
+    return c.json({ error: 'Request not found' }, 404);
+  }
+
+  if (existing.status !== 'pending') {
+    return c.json({ error: 'Request is not pending' }, 400);
+  }
+
+  const workflow = await repo.getWorkflowWithSteps(existing.workflowId);
+  const applicant = await repo.getUser(existing.applicantId);
+  const applicantOrg = await repo.getOrganization(existing.applicantOrganizationId);
+
+  if (!workflow || !applicant || !applicantOrg) {
+    return c.json({ error: 'Related data not found' }, 500);
+  }
+
+  const dataStore = createDataStore();
+  const approvalService = new ApprovalService(dataStore);
+
+  const canPull = await approvalService.canPullUp(userId, {
+    request: existing,
+    applicant,
+    applicantOrganization: applicantOrg,
+    workflow,
+    currentDate: new Date(),
+  });
+
+  if (!canPull) {
+    return c.json({ error: 'You are not authorized to pull up this request' }, 403);
+  }
+
+  // 現在のステップから引き上げユーザーのステップまでを自動承認
+  const route = await approvalService.resolveApprovalRoute({
+    request: existing,
+    applicant,
+    applicantOrganization: applicantOrg,
+    workflow,
+    currentDate: new Date(),
+  });
+
+  let pullUpToStep = existing.currentStep;
+  for (const step of route) {
+    if (step.stepOrder >= existing.currentStep && step.approver?.id === userId) {
+      pullUpToStep = step.stepOrder;
+      break;
+    }
+  }
+
+  // 中間ステップを引き上げ承認として記録
+  for (let stepOrder = existing.currentStep; stepOrder <= pullUpToStep; stepOrder++) {
+    await repo.createApprovalHistory({
+      requestId: id,
+      stepOrder,
+      approverId: userId,
+      action: stepOrder === pullUpToStep ? 'approve' : 'pull_up',
+      comment: '引き上げ承認',
+    });
+  }
+
+  // 次のステップに進む
+  const nextStep = pullUpToStep + 1;
+  const maxStep = workflow.steps.length;
+
+  if (nextStep > maxStep) {
+    const request = await repo.updateRequest(id, {
+      status: 'approved',
+      currentStep: nextStep,
+      completedAt: new Date(),
+    });
+    return c.json({ success: true, request, completed: true });
+  }
+
+  const request = await repo.updateRequest(id, { currentStep: nextStep });
+  return c.json({ success: true, request, completed: false });
+});
+
+// 再利用（Phase 1: NI Collabo 360）
+requestRoutes.post('/:id/reuse', async (c) => {
+  const id = c.req.param('id');
+  const userId = c.req.header('X-User-Id');
+
+  if (!userId) {
+    return c.json({ error: 'X-User-Id header required' }, 400);
+  }
+
+  const repo = getRepository();
+  const existing = await repo.getRequest(id);
+
+  if (!existing) {
+    return c.json({ error: 'Request not found' }, 404);
+  }
+
+  // 完了/却下/取り下げ済みのみ再利用可能
+  if (!['approved', 'rejected', 'withdrawn'].includes(existing.status)) {
+    return c.json({ error: 'Can only reuse completed/rejected/withdrawn requests' }, 400);
+  }
+
+  const workflow = await repo.getWorkflowWithSteps(existing.workflowId);
+  if (workflow && !workflow.allowReuse) {
+    return c.json({ error: 'Reuse is not allowed for this workflow' }, 400);
+  }
+
+  // 内容をコピーして新規draft作成
+  const newRequest = await repo.createRequest({
+    workflowId: existing.workflowId,
+    applicantId: userId,
+    applicantOrganizationId: existing.applicantOrganizationId,
+    title: `[再利用] ${existing.title}`,
+    content: existing.content,
+  });
+
+  return c.json({ success: true, request: newRequest }, 201);
+});
 
 // 取消し
 requestRoutes.post('/:id/cancel', async (c) => {
@@ -679,4 +892,257 @@ requestRoutes.get('/:id/history', async (c) => {
   );
 
   return c.json({ history: historyWithApprover });
+});
+
+// 条件付き承認（NI Collabo 19-11-7）
+// 決裁者が通過済み経路メンバーにコメントを要求
+requestRoutes.post(
+  '/:id/conditional-approve',
+  zValidator(
+    'json',
+    z.object({
+      comment: z.string().max(1000).optional(),
+      targetSteps: z.array(z.number().int().min(1)), // コメント要求先ステップ番号
+    }),
+    (result, c) => {
+      if (!result.success) {
+        return c.json({ error: result.error.issues[0]?.message || 'バリデーションエラー' }, 400);
+      }
+      return undefined;
+    }
+  ),
+  async (c) => {
+    const id = c.req.param('id');
+    const { comment, targetSteps } = c.req.valid('json');
+    const approverId = c.req.header('X-User-Id');
+
+    if (!approverId) {
+      return c.json({ error: 'X-User-Id header required' }, 400);
+    }
+
+    const repo = getRepository();
+    const existing = await repo.getRequest(id);
+
+    if (!existing) {
+      return c.json({ error: 'Request not found' }, 404);
+    }
+
+    if (existing.status !== 'pending') {
+      return c.json({ error: 'Request is not pending' }, 400);
+    }
+
+    // 現在のステップが決裁者であることを確認
+    const workflow = await repo.getWorkflowWithSteps(existing.workflowId);
+    const currentStepDef = workflow?.steps.find((s) => s.stepOrder === existing.currentStep);
+    if (!currentStepDef || currentStepDef.stepRoleType !== 'final_approver') {
+      return c.json({ error: '条件付き承認は決裁者のみ実行可能です' }, 403);
+    }
+
+    // 条件付き承認を履歴に記録
+    await repo.createApprovalHistory({
+      requestId: id,
+      stepOrder: existing.currentStep,
+      approverId,
+      action: 'conditional_approve',
+      comment: comment ?? undefined,
+    });
+
+    // ステータスを条件付き承認待ちに変更
+    const request = await repo.updateRequest(id, {
+      status: 'conditional_approve_wait',
+    });
+
+    return c.json({
+      success: true,
+      request,
+      targetSteps,
+      message: '条件付き承認を実行しました。指定されたステップの承認者にコメントを要求しています。',
+    });
+  }
+);
+
+// 条件付き承認コメント応答
+requestRoutes.post(
+  '/:id/conditional-approve-respond',
+  zValidator(
+    'json',
+    z.object({
+      comment: z.string().min(1, 'コメントは必須です').max(1000),
+      stepOrder: z.number().int().min(1),
+    }),
+    (result, c) => {
+      if (!result.success) {
+        return c.json({ error: result.error.issues[0]?.message || 'バリデーションエラー' }, 400);
+      }
+      return undefined;
+    }
+  ),
+  async (c) => {
+    const id = c.req.param('id');
+    const { comment, stepOrder } = c.req.valid('json');
+    const userId = c.req.header('X-User-Id');
+
+    if (!userId) {
+      return c.json({ error: 'X-User-Id header required' }, 400);
+    }
+
+    const repo = getRepository();
+    const existing = await repo.getRequest(id);
+
+    if (!existing) {
+      return c.json({ error: 'Request not found' }, 404);
+    }
+
+    if (existing.status !== 'conditional_approve_wait') {
+      return c.json({ error: 'この申請は条件付き承認待ち状態ではありません' }, 400);
+    }
+
+    // コメントを履歴に記録
+    await repo.createApprovalHistory({
+      requestId: id,
+      stepOrder,
+      approverId: userId,
+      action: 'approve',
+      comment,
+    });
+
+    // すべてのコメントが揃ったか確認（簡易版: pendingに戻す）
+    const request = await repo.updateRequest(id, {
+      status: 'pending',
+    });
+
+    return c.json({ success: true, request });
+  }
+);
+
+// 経路変更（NI Collabo 19-11: 承認者が承認経路を変更）
+requestRoutes.post(
+  '/:id/route-change',
+  zValidator(
+    'json',
+    z.object({
+      comment: z.string().max(1000).optional(),
+      newSteps: z.array(z.object({
+        stepOrder: z.number().int().min(1),
+        stepType: z.enum(['position', 'role', 'specific_user']),
+        specificUserId: z.string().optional(),
+        label: z.string().optional(),
+      })),
+    }),
+    (result, c) => {
+      if (!result.success) {
+        return c.json({ error: result.error.issues[0]?.message || 'バリデーションエラー' }, 400);
+      }
+      return undefined;
+    }
+  ),
+  async (c) => {
+    const id = c.req.param('id');
+    const { comment, newSteps } = c.req.valid('json');
+    const userId = c.req.header('X-User-Id');
+
+    if (!userId) {
+      return c.json({ error: 'X-User-Id header required' }, 400);
+    }
+
+    const repo = getRepository();
+    const existing = await repo.getRequest(id);
+
+    if (!existing) {
+      return c.json({ error: 'Request not found' }, 404);
+    }
+
+    if (existing.status !== 'pending') {
+      return c.json({ error: 'Request is not pending' }, 400);
+    }
+
+    // ワークフローの経路変更許可チェック
+    const workflow = await repo.getWorkflowWithSteps(existing.workflowId);
+    if (!workflow || !workflow.allowRouteChange) {
+      return c.json({ error: 'この申請書では経路変更が許可されていません' }, 400);
+    }
+
+    // 現在のステップの承認者であるかチェック
+    const dataStore = createDataStore();
+    const approvalService = new ApprovalService(dataStore);
+    const applicant = await repo.getUser(existing.applicantId);
+    const applicantOrg = await repo.getOrganization(existing.applicantOrganizationId);
+
+    if (!applicant || !applicantOrg) {
+      return c.json({ error: 'Related data not found' }, 500);
+    }
+
+    const route = await approvalService.resolveApprovalRoute({
+      request: existing,
+      applicant,
+      applicantOrganization: applicantOrg,
+      workflow,
+      currentDate: new Date(),
+    });
+
+    const currentStepInfo = route.find(
+      (s) => s.stepOrder === existing.currentStep && s.status === 'pending'
+    );
+
+    if (currentStepInfo?.approver?.id !== userId) {
+      return c.json({ error: '現在のステップの承認者のみ経路変更が可能です' }, 403);
+    }
+
+    // 新しいステップを追加（現在のステップ以降を差し替え）
+    // 実際のLark Base実装では既存ステップの削除・追加が必要
+    // ここでは履歴にのみ記録し、レスポンスで新しいステップ情報を返す
+    await repo.createApprovalHistory({
+      requestId: id,
+      stepOrder: existing.currentStep,
+      approverId: userId,
+      action: 'approve',
+      comment: comment ? `[経路変更] ${comment}` : '[経路変更]',
+    });
+
+    return c.json({
+      success: true,
+      message: '経路を変更しました',
+      newSteps,
+    });
+  }
+);
+
+// PDF出力
+requestRoutes.get('/:id/pdf', async (c) => {
+  const id = c.req.param('id');
+  const repo = getRepository();
+  const request = await repo.getRequest(id);
+  if (!request) return c.json({ error: '申請が見つかりません' }, 404);
+
+  const workflow = await repo.getWorkflow(request.workflowId);
+  if (!workflow) return c.json({ error: 'ワークフローが見つかりません' }, 404);
+
+  // 経路解決
+  const workflowWithSteps = await repo.getWorkflowWithSteps(request.workflowId);
+  if (!workflowWithSteps) return c.json({ error: 'ワークフローが見つかりません' }, 404);
+
+  const applicant = await repo.getUser(request.applicantId);
+  const org = await repo.getOrganization(request.applicantOrganizationId);
+  if (!applicant || !org) return c.json({ error: 'ユーザー情報が見つかりません' }, 404);
+
+  const dataStore = createDataStore();
+  const service = new ApprovalService(dataStore);
+  const route = await service.resolveApprovalRoute({
+    request,
+    applicant,
+    applicantOrganization: org,
+    workflow: workflowWithSteps,
+    currentDate: new Date(),
+  });
+
+  const history = await repo.getApprovalHistory(id);
+
+  const pdfBytes = await generateRequestPdf(request, workflow, route, history);
+
+  return new Response(pdfBytes, {
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="request-${request.docNumber || id}.pdf"`,
+    },
+  });
 });

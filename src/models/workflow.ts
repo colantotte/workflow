@@ -9,18 +9,82 @@ export const ApprovalStepType = z.enum([
 
 export type ApprovalStepType = z.infer<typeof ApprovalStepType>;
 
+// ステップ役割タイプ（NI Collabo 360準拠）
+export const StepRoleType = z.enum([
+  'approver',        // 承認者
+  'final_approver',  // 決裁者
+  'handler',         // 業務担当者
+  'notifier',        // 通知のみ
+]);
+
+export type StepRoleType = z.infer<typeof StepRoleType>;
+
+// 複数承認者モード
+export const MultiApproverMode = z.enum([
+  'single',  // 単独承認（最初の1人）
+  'all',     // 全員承認
+  'group',   // グループ承認（N人以上）
+  'notify',  // 通知のみ（承認不要）
+]);
+
+export type MultiApproverMode = z.infer<typeof MultiApproverMode>;
+
+// 期限自動アクション
+export const DeadlineAutoAction = z.enum([
+  'none',          // なし
+  'auto_approve',  // 自動承認
+  'auto_reject',   // 自動却下
+]);
+
+export type DeadlineAutoAction = z.infer<typeof DeadlineAutoAction>;
+
+// 差戻モード
+export const RemandMode = z.enum([
+  'require_reapproval',  // 差戻後再承認必須（経路最初から）
+  'choose_at_remand',    // 差戻時に選択
+  'no_reapproval',       // 再承認不要（差戻先から再開）
+]);
+
+export type RemandMode = z.infer<typeof RemandMode>;
+
 // フォームフィールドタイプ
 export const FormFieldType = z.enum([
-  'text',       // テキスト入力
-  'number',     // 数値入力
-  'date',       // 日付入力
-  'select',     // 選択肢
-  'textarea',   // 複数行テキスト
-  'file',       // ファイル添付
-  'checkbox',   // チェックボックス
+  'text',              // テキスト入力
+  'number',            // 数値入力
+  'date',              // 日付入力
+  'select',            // 選択肢
+  'textarea',          // 複数行テキスト
+  'file',              // ファイル添付
+  'checkbox',          // チェックボックス
+  'time',              // 時刻選択
+  'radio',             // ラジオボタン
+  'employee_select',   // 社員選択
+  'department_select', // 部署選択
+  'auto_calc',         // 自動計算
+  'detail_table',      // 明細テーブル
 ]);
 
 export type FormFieldType = z.infer<typeof FormFieldType>;
+
+// 表示条件・必須条件スキーマ
+export const FieldConditionSchema = z.object({
+  field: z.string(),                    // 対象フィールド名
+  operator: z.enum(['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'not_empty', 'empty']),
+  value: z.union([z.string(), z.number(), z.array(z.string())]).optional(),
+});
+
+export type FieldCondition = z.infer<typeof FieldConditionSchema>;
+
+// 明細テーブル列定義
+export const DetailColumnSchema = z.object({
+  name: z.string().min(1),
+  label: z.string().min(1),
+  type: z.enum(['text', 'number', 'select', 'date']),
+  options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
+  enableTotal: z.boolean().default(false),  // 合計行表示
+});
+
+export type DetailColumn = z.infer<typeof DetailColumnSchema>;
 
 // フォームフィールド定義
 export const FormFieldSchema = z.object({
@@ -29,7 +93,7 @@ export const FormFieldSchema = z.object({
   type: FormFieldType,
   required: z.boolean().default(false),
   placeholder: z.string().optional(),
-  options: z.array(z.object({           // select用の選択肢
+  options: z.array(z.object({           // select/radio用の選択肢
     value: z.string(),
     label: z.string(),
   })).optional(),
@@ -39,13 +103,50 @@ export const FormFieldSchema = z.object({
     pattern: z.string().optional(),     // 正規表現パターン
   }).optional(),
   defaultValue: z.unknown().optional(),
+
+  // Phase 3: 表示条件・関連必須
+  displayCondition: FieldConditionSchema.nullable().optional(),   // 表示条件
+  requiredCondition: FieldConditionSchema.nullable().optional(),  // 関連必須条件
+
+  // Phase 3: 自動計算
+  calcFormula: z.string().nullable().optional(),         // 計算式 "{quantity} * {price}"
+  calcDecimalPlaces: z.number().int().min(0).max(4).optional(),
+  calcRounding: z.enum(['round', 'floor', 'ceil']).optional(),
+
+  // Phase 3: 明細テーブル
+  detailColumns: z.array(DetailColumnSchema).max(5).optional(),
+
+  // Phase 3: 時刻・ラジオ
+  timeInterval: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(20), z.literal(30)]).optional(),
+  radioLayout: z.enum(['horizontal', 'vertical', 'wrap']).optional(),
+
+  // Phase 3: 経路条件判定用
+  conditionValue: z.number().nullable().optional(),
+
+  // NI Collabo: 吹き出し（ツールチップ）
+  tooltip: z.string().nullable().optional(),
+
+  // NI Collabo: 役割別編集可否（未指定=全員編集可能）
+  editableByRoles: z.array(StepRoleType).nullable().optional(),  // ['approver','final_approver'] etc.
+  editDisabled: z.boolean().default(false),                       // true=全役割で編集不可
 });
 
 export type FormField = z.infer<typeof FormFieldSchema>;
 
+// 大小比較バリデーション（NI Collabo 19-6: フィールド間の大小比較）
+export const SizeComparisonSchema = z.object({
+  fieldA: z.string().min(1),       // 小さい側のフィールド名
+  fieldB: z.string().min(1),       // 大きい側のフィールド名
+  operator: z.enum(['lt', 'lte']), // lt: A < B, lte: A <= B
+  errorMessage: z.string().optional(),
+});
+
+export type SizeComparison = z.infer<typeof SizeComparisonSchema>;
+
 // フォームスキーマ
 export const FormSchemaDefinition = z.object({
   fields: z.array(FormFieldSchema),
+  sizeComparisons: z.array(SizeComparisonSchema).default([]), // 大小比較ルール
 });
 
 export type FormSchema = z.infer<typeof FormSchemaDefinition>;
@@ -72,6 +173,50 @@ export const StepConditionSchema = z.object({
 
 export type StepCondition = z.infer<typeof StepConditionSchema>;
 
+// 閲覧制限タイプ
+export const ViewingRestriction = z.enum([
+  'all',              // 全員閲覧可能
+  'route_members',    // 経路メンバーのみ
+  'department',       // 同一部署のみ
+  'specified_users',  // 指定ユーザーのみ
+]);
+
+export type ViewingRestriction = z.infer<typeof ViewingRestriction>;
+
+// 通知設定
+export const NotificationSettingsSchema = z.object({
+  notifyNextApprover: z.boolean().default(true),        // 次の承認者に通知
+  notifyOnComplete: z.boolean().default(true),           // 決裁完了時に申請者通知
+  notifyRouteOnComplete: z.boolean().default(false),     // 決裁完了時に経路全員通知
+  notifyOnRemand: z.boolean().default(true),             // 差戻時に通知
+});
+
+export type NotificationSettings = z.infer<typeof NotificationSettingsSchema>;
+
+// 件名自動入力モード（NI Collabo 19-6）
+export const SubjectAutoInputMode = z.enum([
+  'none',          // 手動入力
+  'from_basic',    // 基本項目から自動生成（ワークフロー名 + 日付）
+  'from_fields',   // 全フィールドから自動生成
+  'template',      // テンプレート指定 "{category} - {amount}円"
+]);
+
+export type SubjectAutoInputMode = z.infer<typeof SubjectAutoInputMode>;
+
+// PDF設定
+export const PdfSettingsSchema = z.object({
+  pdfEnabled: z.boolean().default(false),
+  pdfPaperSize: z.enum(['A4_portrait', 'A4_landscape', 'B5_portrait', 'B5_landscape']).default('A4_portrait'),
+  pdfMargins: z.object({
+    top: z.number().default(20),
+    right: z.number().default(15),
+    bottom: z.number().default(20),
+    left: z.number().default(15),
+  }).optional(),
+});
+
+export type PdfSettings = z.infer<typeof PdfSettingsSchema>;
+
 // ワークフロー定義
 export const WorkflowDefinitionSchema = z.object({
   id: z.string().uuid(),
@@ -80,6 +225,39 @@ export const WorkflowDefinitionSchema = z.object({
   category: z.string().min(1).max(50), // 経費精算, 稟議, 休暇申請 など
   formSchema: FormSchemaDefinition.nullable().default(null), // フォーム定義
   isActive: z.boolean().default(true),
+
+  // Phase 1: 自動採番
+  numberFormat: z.string().nullable().default(null),     // "%Y%m-%N%N%N"
+  nextNumber: z.number().int().default(1),
+
+  // Phase 1: 操作許可
+  allowWithdrawal: z.boolean().default(false),           // 取り下げ許可
+  allowPullUp: z.boolean().default(false),               // 引き上げ許可
+  allowReuse: z.boolean().default(false),                // 再利用許可
+
+  // Phase 4: 閲覧制限
+  viewingRestriction: ViewingRestriction.default('all'),
+  viewingAllowedUsers: z.array(z.string()).default([]),
+  allowProxyViewing: z.boolean().default(false),
+
+  // Phase 5: PDF設定
+  pdfSettings: PdfSettingsSchema.nullable().default(null),
+
+  // Phase 5: 通知設定
+  notificationSettings: NotificationSettingsSchema.nullable().default(null),
+
+  // NI Collabo: 件名自動入力
+  subjectAutoInputMode: SubjectAutoInputMode.default('none'),
+  subjectTemplate: z.string().nullable().default(null),  // template モード用 "{category} - {amount}円"
+
+  // NI Collabo: 経路変更許可（19-11）
+  allowRouteChange: z.boolean().default(false),
+  routeChangeRoles: z.array(StepRoleType).default([]),  // 経路変更可能な役割
+
+  // NI Collabo: 代理処理依頼（19-11）
+  proxyProcessingAutoNotify: z.boolean().default(false),       // 自動通知有効
+  proxyProcessingTimeoutDays: z.number().int().min(1).max(30).nullable().default(null), // N日後に代理者へ通知
+
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -117,6 +295,16 @@ export const ApprovalStepSchema = z.object({
   // メタデータ
   label: z.string().max(100).nullable(),           // 表示名（例: "部長承認"）
 
+  // Phase 1: NI Collabo 360 拡張フィールド
+  stepRoleType: StepRoleType.default('approver'),
+  multiApproverMode: MultiApproverMode.default('single'),
+  requiredApproverCount: z.number().int().min(1).nullable().default(null), // グループ承認時の必要人数
+  deadlineDays: z.number().int().min(1).max(99).nullable().default(null),
+  deadlineAutoAction: DeadlineAutoAction.default('none'),
+  remandMode: RemandMode.default('require_reapproval'),
+  allowSelfApproval: z.boolean().default(false),
+  editableFields: z.array(z.string()).nullable().default(null), // 承認時編集可能フィールド
+
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -137,7 +325,7 @@ export interface WorkflowWithSteps extends WorkflowDefinition {
 }
 
 // 経費精算フォーム
-export const EXPENSE_FORM_SCHEMA: FormSchema = {
+export const EXPENSE_FORM_SCHEMA: z.input<typeof FormSchemaDefinition> = {
   fields: [
     {
       name: 'amount',
@@ -183,7 +371,7 @@ export const EXPENSE_FORM_SCHEMA: FormSchema = {
 };
 
 // 休暇申請フォーム
-export const LEAVE_FORM_SCHEMA: FormSchema = {
+export const LEAVE_FORM_SCHEMA: z.input<typeof FormSchemaDefinition> = {
   fields: [
     {
       name: 'leaveType',
@@ -220,7 +408,7 @@ export const LEAVE_FORM_SCHEMA: FormSchema = {
 };
 
 // サンプルワークフロー
-export const SAMPLE_WORKFLOWS: Omit<WorkflowDefinition, 'id' | 'createdAt' | 'updatedAt'>[] = [
+export const SAMPLE_WORKFLOWS: z.input<typeof CreateWorkflowDefinitionSchema>[] = [
   {
     name: '経費精算（10万円未満）',
     description: '10万円未満の経費精算申請',

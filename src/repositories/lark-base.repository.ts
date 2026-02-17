@@ -11,28 +11,56 @@ import type {
   ApprovalStep,
   Request,
   ApprovalHistory,
+  StepApprovalStatus,
+  RouteMaster,
+  RouteStep,
+  RouteMasterWithSteps,
+  ProxySetting,
 } from '../models/index.js';
 import { cached, cache } from '../utils/cache.js';
 
-// テーブルID設定
-const TABLES = {
-  organizations: process.env.LARK_TABLE_ORGANIZATIONS ?? 'tblCnyU5rDlwsFCd',
-  positions: process.env.LARK_TABLE_POSITIONS ?? 'tblvNSExDwSQLTl4',
-  approvalRoles: process.env.LARK_TABLE_APPROVAL_ROLES ?? 'tblexuWyCZJQVsUt',
-  users: process.env.LARK_TABLE_USERS ?? 'tblKjUDl9ysBlZot',
-  userPositions: process.env.LARK_TABLE_USER_POSITIONS ?? 'tblGSAYD0p99ZpEf',
-  userApprovalRoles: process.env.LARK_TABLE_USER_APPROVAL_ROLES ?? 'tblbHimZpnz1tKzB',
-  workflowDefinitions: process.env.LARK_TABLE_WORKFLOWS ?? 'tbloV9BwBTySxhzp',
-  approvalSteps: process.env.LARK_TABLE_APPROVAL_STEPS ?? 'tbls8HxUObebzsFl',
-  requests: process.env.LARK_TABLE_REQUESTS ?? 'tblU94oqwhezq03A',
-  approvalHistory: process.env.LARK_TABLE_APPROVAL_HISTORY ?? 'tblkIFM69oDD8nqY',
-};
+// テーブルID設定（遅延評価 - dotenv.config() 完了後に環境変数を読み取る）
+let _tablesCache: Record<string, string> | null = null;
+function tables(): Record<string, string> {
+  if (!_tablesCache) {
+    _tablesCache = {
+      organizations: process.env.LARK_TABLE_ORGANIZATIONS ?? 'tblCnyU5rDlwsFCd',
+      positions: process.env.LARK_TABLE_POSITIONS ?? 'tblvNSExDwSQLTl4',
+      approvalRoles: process.env.LARK_TABLE_APPROVAL_ROLES ?? 'tblexuWyCZJQVsUt',
+      users: process.env.LARK_TABLE_USERS ?? 'tblKjUDl9ysBlZot',
+      userPositions: process.env.LARK_TABLE_USER_POSITIONS ?? 'tblGSAYD0p99ZpEf',
+      userApprovalRoles: process.env.LARK_TABLE_USER_APPROVAL_ROLES ?? 'tblbHimZpnz1tKzB',
+      workflowDefinitions: process.env.LARK_TABLE_WORKFLOWS ?? 'tbloV9BwBTySxhzp',
+      approvalSteps: process.env.LARK_TABLE_APPROVAL_STEPS ?? 'tbls8HxUObebzsFl',
+      requests: process.env.LARK_TABLE_REQUESTS ?? 'tblU94oqwhezq03A',
+      approvalHistory: process.env.LARK_TABLE_APPROVAL_HISTORY ?? 'tblkIFM69oDD8nqY',
+      stepApprovalStatuses: process.env.LARK_TABLE_STEP_APPROVAL_STATUSES ?? '',
+      routeMasters: process.env.LARK_TABLE_ROUTE_MASTERS ?? '',
+      routeSteps: process.env.LARK_TABLE_ROUTE_STEPS ?? '',
+      proxySettings: process.env.LARK_TABLE_PROXY_SETTINGS ?? '',
+    };
+  }
+  return _tablesCache;
+}
+// TABLES proxy for lazy evaluation - reads env vars on first access
+const TABLES = new Proxy({} as Record<string, string>, {
+  get(_, prop: string) { return tables()[prop]; },
+});
 
 export class LarkBaseRepository {
   private client: LarkBaseClient;
 
   constructor(appToken: string) {
     this.client = new LarkBaseClient({ appToken });
+  }
+
+  // ==================== キャッシュ ====================
+  clearCache(key?: string): void {
+    if (key) {
+      cache.deletePattern(key);
+    } else {
+      cache.clear();
+    }
   }
 
   // ==================== 組織 ====================
@@ -46,6 +74,41 @@ export class LarkBaseRepository {
   async getOrganization(id: string): Promise<Organization | null> {
     const orgs = await this.listOrganizations();
     return orgs.find((o) => o.id === id || o.code === id) || null;
+  }
+
+  async createOrganization(data: {
+    code: string;
+    name: string;
+    level: Organization['level'];
+    parentCode?: string | null;
+    isActive?: boolean;
+  }): Promise<Organization> {
+    const fields = {
+      code: data.code,
+      name: data.name,
+      level: data.level,
+      parent_code: data.parentCode ?? '',
+      is_active: data.isActive ?? true,
+    };
+    const record = await this.client.createRecord(TABLES.organizations, fields);
+    return this.mapOrganization(record);
+  }
+
+  async updateOrganization(id: string, data: Partial<{
+    code: string;
+    name: string;
+    level: Organization['level'];
+    parentCode: string | null;
+    isActive: boolean;
+  }>): Promise<Organization> {
+    const fields: Record<string, unknown> = {};
+    if (data.code !== undefined) fields.code = data.code;
+    if (data.name !== undefined) fields.name = data.name;
+    if (data.level !== undefined) fields.level = data.level;
+    if (data.parentCode !== undefined) fields.parent_code = data.parentCode ?? '';
+    if (data.isActive !== undefined) fields.is_active = data.isActive;
+    const record = await this.client.updateRecord(TABLES.organizations, id, fields);
+    return this.mapOrganization(record);
   }
 
   private mapOrganization(record: LarkBaseRecord): Organization {
@@ -98,6 +161,39 @@ export class LarkBaseRepository {
     return roles.find((r) => r.id === id || r.name === id) || null;
   }
 
+  async createApprovalRole(data: {
+    name: string;
+    description?: string;
+    isActive?: boolean;
+  }): Promise<ApprovalRole> {
+    const record = await this.client.createRecord(TABLES.approvalRoles, {
+      name: data.name,
+      description: data.description ?? '',
+      is_active: data.isActive ?? true,
+    });
+    this.clearCache('approvalRoles');
+    return this.mapApprovalRole(record);
+  }
+
+  async updateApprovalRole(id: string, data: Partial<{
+    name: string;
+    description: string;
+    isActive: boolean;
+  }>): Promise<ApprovalRole> {
+    const fields: Record<string, unknown> = {};
+    if (data.name !== undefined) fields.name = data.name;
+    if (data.description !== undefined) fields.description = data.description;
+    if (data.isActive !== undefined) fields.is_active = data.isActive;
+    const record = await this.client.updateRecord(TABLES.approvalRoles, id, fields);
+    this.clearCache('approvalRoles');
+    return this.mapApprovalRole(record);
+  }
+
+  async deleteApprovalRole(id: string): Promise<void> {
+    await this.client.deleteRecord(TABLES.approvalRoles, id);
+    this.clearCache('approvalRoles');
+  }
+
   private mapApprovalRole(record: LarkBaseRecord): ApprovalRole {
     return {
       id: record.record_id!,
@@ -113,7 +209,15 @@ export class LarkBaseRepository {
   async listUsers(): Promise<User[]> {
     return cached('users:all', async () => {
       const records = await this.client.getAllRecords(TABLES.users);
-      return records.map((r) => this.mapUser(r));
+      const users = records.map((r) => this.mapUser(r));
+      // larkUserId で重複排除（Lark Base のデータ重複対策）
+      const seen = new Set<string>();
+      return users.filter((u) => {
+        const key = u.larkUserId || u.id;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     }, 120); // 2分キャッシュ
   }
 
@@ -127,13 +231,49 @@ export class LarkBaseRepository {
     return users.find((u) => u.larkUserId === larkUserId) || null;
   }
 
+  async createUser(data: {
+    larkUserId: string;
+    name: string;
+    email: string;
+    role?: User['role'];
+    isActive?: boolean;
+  }): Promise<User> {
+    const fields = {
+      lark_user_id: data.larkUserId,
+      name: data.name,
+      email: data.email,
+      role: data.role ?? 'user',
+      is_active: data.isActive ?? true,
+    };
+    const record = await this.client.createRecord(TABLES.users, fields);
+    return this.mapUser(record);
+  }
+
+  async updateUser(id: string, data: Partial<{
+    name: string;
+    email: string;
+    role: User['role'];
+    isActive: boolean;
+  }>): Promise<User> {
+    const fields: Record<string, unknown> = {};
+    if (data.name !== undefined) fields.name = data.name;
+    if (data.email !== undefined) fields.email = data.email;
+    if (data.role !== undefined) fields.role = data.role;
+    if (data.isActive !== undefined) fields.is_active = data.isActive;
+    const record = await this.client.updateRecord(TABLES.users, id, fields);
+    return this.mapUser(record);
+  }
+
   private mapUser(record: LarkBaseRecord): User {
+    const role = String(record.fields.role ?? 'user');
     return {
       id: record.record_id!,
       larkUserId: String(record.fields.lark_user_id ?? ''),
       name: String(record.fields.name ?? ''),
       email: String(record.fields.email ?? ''),
+      role: (['admin', 'manager', 'user'].includes(role) ? role : 'user') as User['role'],
       isActive: Boolean(record.fields.is_active),
+      sealImageUrl: String(record.fields.seal_image_url ?? '') || null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -273,6 +413,29 @@ export class LarkBaseRepository {
     return users;
   }
 
+  async createUserApprovalRole(data: {
+    userId: string;
+    approvalRoleName: string;
+    targetOrganizationCode?: string;
+    validFrom?: Date;
+    validTo?: Date;
+  }): Promise<UserApprovalRole> {
+    const record = await this.client.createRecord(TABLES.userApprovalRoles, {
+      user_link: { link_record_ids: [data.userId] },
+      approval_role_name: data.approvalRoleName,
+      target_organization_code: data.targetOrganizationCode ?? '',
+      valid_from: data.validFrom?.getTime() ?? Date.now(),
+      valid_to: data.validTo?.getTime() ?? '',
+    });
+    this.clearCache('userApprovalRoles');
+    return this.mapUserApprovalRole(record, data.userId);
+  }
+
+  async deleteUserApprovalRole(id: string): Promise<void> {
+    await this.client.deleteRecord(TABLES.userApprovalRoles, id);
+    this.clearCache('userApprovalRoles');
+  }
+
   private mapUserApprovalRole(record: LarkBaseRecord, userId: string): UserApprovalRole {
     return {
       id: record.record_id!,
@@ -360,6 +523,25 @@ export class LarkBaseRepository {
     const category = String(record.fields.category ?? '');
     const formSchema = this.getFormSchemaByCategory(category);
 
+    let pdfSettings = null;
+    try {
+      const ps = record.fields.pdf_settings;
+      if (ps && typeof ps === 'string') pdfSettings = JSON.parse(ps);
+    } catch { /* ignore */ }
+
+    let notificationSettings = null;
+    try {
+      const ns = record.fields.notification_settings;
+      if (ns && typeof ns === 'string') notificationSettings = JSON.parse(ns);
+    } catch { /* ignore */ }
+
+    let viewingAllowedUsers: string[] = [];
+    try {
+      const vau = record.fields.viewing_allowed_users;
+      if (vau && typeof vau === 'string') viewingAllowedUsers = JSON.parse(vau);
+      else if (Array.isArray(vau)) viewingAllowedUsers = vau as string[];
+    } catch { /* ignore */ }
+
     return {
       id: record.record_id!,
       name: String(record.fields.name ?? ''),
@@ -367,6 +549,33 @@ export class LarkBaseRepository {
       category,
       formSchema,
       isActive: Boolean(record.fields.is_active),
+      // Phase 1 拡張
+      numberFormat: String(record.fields.number_format ?? '') || null,
+      nextNumber: Number(record.fields.next_number ?? 1),
+      allowWithdrawal: Boolean(record.fields.allow_withdrawal),
+      allowPullUp: Boolean(record.fields.allow_pull_up),
+      allowReuse: Boolean(record.fields.allow_reuse),
+      // Phase 4 拡張
+      viewingRestriction: (String(record.fields.viewing_restriction ?? 'all') || 'all') as WorkflowDefinition['viewingRestriction'],
+      viewingAllowedUsers,
+      allowProxyViewing: Boolean(record.fields.allow_proxy_viewing),
+      // Phase 5 拡張
+      pdfSettings,
+      notificationSettings,
+      // NI Collabo 拡張
+      subjectAutoInputMode: (String(record.fields.subject_auto_input_mode ?? 'none') || 'none') as WorkflowDefinition['subjectAutoInputMode'],
+      subjectTemplate: String(record.fields.subject_template ?? '') || null,
+      allowRouteChange: Boolean(record.fields.allow_route_change),
+      routeChangeRoles: (() => {
+        try {
+          const r = record.fields.route_change_roles;
+          if (r && typeof r === 'string') return JSON.parse(r);
+          if (Array.isArray(r)) return r;
+        } catch { /* ignore */ }
+        return [];
+      })() as WorkflowDefinition['routeChangeRoles'],
+      proxyProcessingAutoNotify: Boolean(record.fields.proxy_processing_auto_notify),
+      proxyProcessingTimeoutDays: Number(record.fields.proxy_processing_timeout_days) || null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -374,7 +583,7 @@ export class LarkBaseRepository {
 
   // カテゴリ別のフォームスキーマ定義
   private getFormSchemaByCategory(category: string): WorkflowDefinition['formSchema'] {
-    const schemas: Record<string, WorkflowDefinition['formSchema']> = {
+    const schemas: Record<string, any> = {
       '経費精算': {
         fields: [
           { name: 'amount', label: '金額', type: 'number', required: true, placeholder: '金額を入力', validation: { min: 1 } },
@@ -478,6 +687,13 @@ export class LarkBaseRepository {
   }
 
   private mapApprovalStep(record: LarkBaseRecord): ApprovalStep {
+    let editableFields: string[] | null = null;
+    try {
+      const ef = record.fields.editable_fields;
+      if (ef && typeof ef === 'string') editableFields = JSON.parse(ef);
+      else if (Array.isArray(ef)) editableFields = ef as string[];
+    } catch { /* ignore */ }
+
     return {
       id: record.record_id!,
       workflowId: String(record.fields.workflow_id ?? ''),
@@ -491,6 +707,15 @@ export class LarkBaseRepository {
       skipIfSamePerson: Boolean(record.fields.skip_if_same_person),
       skipIfVacant: Boolean(record.fields.skip_if_vacant),
       conditions: null,
+      // Phase 1 拡張
+      stepRoleType: (String(record.fields.step_role_type ?? 'approver') || 'approver') as ApprovalStep['stepRoleType'],
+      multiApproverMode: (String(record.fields.multi_approver_mode ?? 'single') || 'single') as ApprovalStep['multiApproverMode'],
+      requiredApproverCount: record.fields.required_approver_count ? Number(record.fields.required_approver_count) : null,
+      deadlineDays: record.fields.deadline_days ? Number(record.fields.deadline_days) : null,
+      deadlineAutoAction: (String(record.fields.deadline_auto_action ?? 'none') || 'none') as ApprovalStep['deadlineAutoAction'],
+      remandMode: (String(record.fields.remand_mode ?? 'require_reapproval') || 'require_reapproval') as ApprovalStep['remandMode'],
+      allowSelfApproval: Boolean(record.fields.allow_self_approval),
+      editableFields,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -552,6 +777,10 @@ export class LarkBaseRepository {
       currentStep: number;
       submittedAt: Date;
       completedAt: Date;
+      proxyApplicantId: string | null;
+      withdrawnAt: Date | null;
+      routeMasterId: string | null;
+      docNumber: string | null;
     }>
   ): Promise<Request> {
     const fields: Record<string, unknown> = {};
@@ -561,6 +790,10 @@ export class LarkBaseRepository {
     if (data.currentStep !== undefined) fields.current_step = data.currentStep;
     if (data.submittedAt !== undefined) fields.submitted_at = data.submittedAt.getTime();
     if (data.completedAt !== undefined) fields.completed_at = data.completedAt.getTime();
+    if (data.proxyApplicantId !== undefined) fields.proxy_applicant_id = data.proxyApplicantId ?? '';
+    if (data.withdrawnAt !== undefined) fields.withdrawn_at = data.withdrawnAt?.getTime() ?? '';
+    if (data.routeMasterId !== undefined) fields.route_master_id = data.routeMasterId ?? '';
+    if (data.docNumber !== undefined) fields.doc_number = data.docNumber ?? '';
 
     const record = await this.client.updateRecord(TABLES.requests, id, fields);
     return this.mapRequest(record);
@@ -585,6 +818,11 @@ export class LarkBaseRepository {
       currentStep: Number(record.fields.current_step ?? 0),
       submittedAt: record.fields.submitted_at ? new Date(Number(record.fields.submitted_at)) : null,
       completedAt: record.fields.completed_at ? new Date(Number(record.fields.completed_at)) : null,
+      // Phase 1 拡張
+      proxyApplicantId: String(record.fields.proxy_applicant_id ?? '') || null,
+      withdrawnAt: record.fields.withdrawn_at ? new Date(Number(record.fields.withdrawn_at)) : null,
+      routeMasterId: String(record.fields.route_master_id ?? '') || null,
+      docNumber: String(record.fields.doc_number ?? '') || null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -603,9 +841,11 @@ export class LarkBaseRepository {
     requestId: string;
     stepOrder: number;
     approverId: string;
-    action: 'approve' | 'reject' | 'remand' | 'skip';
+    action: string;
     comment?: string;
     skipReason?: string;
+    proxyApproverId?: string;
+    editedFields?: Record<string, unknown>;
   }): Promise<ApprovalHistory> {
     const record = await this.client.createRecord(TABLES.approvalHistory, {
       request_id: data.requestId,
@@ -614,11 +854,19 @@ export class LarkBaseRepository {
       action: data.action,
       comment: data.comment ?? '',
       skip_reason: data.skipReason ?? '',
+      proxy_approver_id: data.proxyApproverId ?? '',
+      edited_fields_json: data.editedFields ? JSON.stringify(data.editedFields) : '',
     });
     return this.mapApprovalHistory(record);
   }
 
   private mapApprovalHistory(record: LarkBaseRecord): ApprovalHistory {
+    let editedFields: Record<string, unknown> | null = null;
+    try {
+      const ef = record.fields.edited_fields_json;
+      if (ef && typeof ef === 'string') editedFields = JSON.parse(ef);
+    } catch { /* ignore */ }
+
     return {
       id: record.record_id!,
       requestId: String(record.fields.request_id ?? ''),
@@ -627,7 +875,332 @@ export class LarkBaseRepository {
       action: String(record.fields.action ?? 'approve') as ApprovalHistory['action'],
       comment: String(record.fields.comment ?? '') || null,
       skipReason: (String(record.fields.skip_reason ?? '') || null) as ApprovalHistory['skipReason'],
+      // Phase 1 拡張
+      proxyApproverId: String(record.fields.proxy_approver_id ?? '') || null,
+      editedFields,
+      // NI Collabo: 条件付き承認
+      conditionalApproveTargetSteps: (() => {
+        try {
+          const cats = record.fields.conditional_approve_target_steps;
+          if (cats && typeof cats === 'string') return JSON.parse(cats);
+          if (Array.isArray(cats)) return cats.map(Number);
+        } catch { /* ignore */ }
+        return null;
+      })(),
       createdAt: new Date(),
+    };
+  }
+
+  // ==================== ステップ承認状況（複数承認者） ====================
+  async getStepApprovalStatuses(requestId: string, stepOrder?: number): Promise<StepApprovalStatus[]> {
+    if (!TABLES.stepApprovalStatuses) return [];
+    const records = await this.client.getAllRecords(TABLES.stepApprovalStatuses);
+    return records
+      .filter((r) => {
+        if (r.fields.request_id !== requestId) return false;
+        if (stepOrder !== undefined && Number(r.fields.step_order) !== stepOrder) return false;
+        return true;
+      })
+      .map((r) => this.mapStepApprovalStatus(r));
+  }
+
+  async createStepApprovalStatus(data: {
+    requestId: string;
+    stepOrder: number;
+    approverId: string;
+    status?: string;
+    comment?: string;
+    proxyApproverId?: string;
+  }): Promise<StepApprovalStatus> {
+    const record = await this.client.createRecord(TABLES.stepApprovalStatuses, {
+      request_id: data.requestId,
+      step_order: data.stepOrder,
+      approver_id: data.approverId,
+      status: data.status ?? 'pending',
+      comment: data.comment ?? '',
+      proxy_approver_id: data.proxyApproverId ?? '',
+    });
+    return this.mapStepApprovalStatus(record);
+  }
+
+  async updateStepApprovalStatus(id: string, data: Partial<{
+    status: string;
+    comment: string;
+    processedAt: Date;
+    proxyApproverId: string;
+  }>): Promise<StepApprovalStatus> {
+    const fields: Record<string, unknown> = {};
+    if (data.status !== undefined) fields.status = data.status;
+    if (data.comment !== undefined) fields.comment = data.comment;
+    if (data.processedAt !== undefined) fields.processed_at = data.processedAt.getTime();
+    if (data.proxyApproverId !== undefined) fields.proxy_approver_id = data.proxyApproverId;
+
+    const record = await this.client.updateRecord(TABLES.stepApprovalStatuses, id, fields);
+    return this.mapStepApprovalStatus(record);
+  }
+
+  private mapStepApprovalStatus(record: LarkBaseRecord): StepApprovalStatus {
+    return {
+      id: record.record_id!,
+      requestId: String(record.fields.request_id ?? ''),
+      stepOrder: Number(record.fields.step_order ?? 0),
+      approverId: String(record.fields.approver_id ?? ''),
+      status: (String(record.fields.status ?? 'pending') || 'pending') as StepApprovalStatus['status'],
+      comment: String(record.fields.comment ?? '') || null,
+      processedAt: record.fields.processed_at ? new Date(Number(record.fields.processed_at)) : null,
+      proxyApproverId: String(record.fields.proxy_approver_id ?? '') || null,
+    };
+  }
+
+  // ==================== 経路マスタ ====================
+
+  async getRouteMasters(workflowId?: string): Promise<RouteMaster[]> {
+    const filter = workflowId
+      ? `CurrentValue.[workflow_id] = "${workflowId}"`
+      : undefined;
+    const records = await this.client.getAllRecords(TABLES.routeMasters, filter);
+    return records.map(r => this.mapRouteMaster(r));
+  }
+
+  async getRouteMaster(id: string): Promise<RouteMaster | null> {
+    const masters = await this.getRouteMasters();
+    return masters.find(m => m.id === id) || null;
+  }
+
+  async getRouteMasterWithSteps(id: string): Promise<RouteMasterWithSteps | null> {
+    const master = await this.getRouteMaster(id);
+    if (!master) return null;
+    const steps = await this.getRouteSteps(id);
+    return { ...master, steps: steps.sort((a, b) => a.stepOrder - b.stepOrder) };
+  }
+
+  async createRouteMaster(data: Omit<RouteMaster, 'id' | 'createdAt' | 'updatedAt'>): Promise<RouteMaster> {
+    const record = await this.client.createRecord(TABLES.routeMasters, {
+      name: data.name,
+      description: data.description,
+      workflow_id: data.workflowId,
+      route_type: data.routeType,
+      priority: data.priority,
+      target_position_id: data.targetPositionId,
+      target_department_id: data.targetDepartmentId,
+      target_user_id: data.targetUserId,
+      is_standard: data.isStandard,
+      is_active: data.isActive,
+      conditions: data.conditions ? JSON.stringify(data.conditions) : null,
+    });
+    return this.mapRouteMaster(record);
+  }
+
+  async updateRouteMaster(id: string, data: Partial<Omit<RouteMaster, 'id' | 'createdAt' | 'updatedAt'>>): Promise<RouteMaster> {
+    const fields: Record<string, unknown> = {};
+    if (data.name !== undefined) fields.name = data.name;
+    if (data.description !== undefined) fields.description = data.description;
+    if (data.routeType !== undefined) fields.route_type = data.routeType;
+    if (data.priority !== undefined) fields.priority = data.priority;
+    if (data.targetPositionId !== undefined) fields.target_position_id = data.targetPositionId;
+    if (data.targetDepartmentId !== undefined) fields.target_department_id = data.targetDepartmentId;
+    if (data.targetUserId !== undefined) fields.target_user_id = data.targetUserId;
+    if (data.isStandard !== undefined) fields.is_standard = data.isStandard;
+    if (data.isActive !== undefined) fields.is_active = data.isActive;
+    if (data.conditions !== undefined) fields.conditions = data.conditions ? JSON.stringify(data.conditions) : null;
+    const record = await this.client.updateRecord(TABLES.routeMasters, id, fields);
+    return this.mapRouteMaster(record);
+  }
+
+  async deleteRouteMaster(id: string): Promise<void> {
+    // ステップも連鎖削除
+    const steps = await this.getRouteSteps(id);
+    for (const step of steps) {
+      await this.client.deleteRecord(TABLES.routeSteps, step.id);
+    }
+    await this.client.deleteRecord(TABLES.routeMasters, id);
+  }
+
+  private mapRouteMaster(record: LarkBaseRecord): RouteMaster {
+    let conditions = null;
+    try {
+      const raw = record.fields.conditions;
+      if (raw && typeof raw === 'string') conditions = JSON.parse(raw);
+    } catch { /* ignore */ }
+
+    return {
+      id: record.record_id!,
+      name: String(record.fields.name ?? ''),
+      description: String(record.fields.description ?? ''),
+      workflowId: String(record.fields.workflow_id ?? ''),
+      routeType: (String(record.fields.route_type ?? 'basic') as RouteMaster['routeType']),
+      priority: Number(record.fields.priority ?? 1),
+      targetPositionId: record.fields.target_position_id ? String(record.fields.target_position_id) : null,
+      targetDepartmentId: record.fields.target_department_id ? String(record.fields.target_department_id) : null,
+      targetUserId: record.fields.target_user_id ? String(record.fields.target_user_id) : null,
+      isStandard: Boolean(record.fields.is_standard),
+      isActive: Boolean(record.fields.is_active),
+      conditions,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
+
+  // ==================== 経路ステップ ====================
+
+  async getRouteSteps(routeMasterId: string): Promise<RouteStep[]> {
+    const filter = `CurrentValue.[route_master_id] = "${routeMasterId}"`;
+    const records = await this.client.getAllRecords(TABLES.routeSteps, filter);
+    return records.map(r => this.mapRouteStep(r)).sort((a, b) => a.stepOrder - b.stepOrder);
+  }
+
+  async createRouteStep(data: Omit<RouteStep, 'id' | 'createdAt' | 'updatedAt'>): Promise<RouteStep> {
+    let editableFields = null;
+    try { if (data.editableFields) editableFields = JSON.stringify(data.editableFields); } catch { /* ignore */ }
+    let conditions = null;
+    try { if (data.conditions) conditions = JSON.stringify(data.conditions); } catch { /* ignore */ }
+
+    const record = await this.client.createRecord(TABLES.routeSteps, {
+      route_master_id: data.routeMasterId,
+      step_order: data.stepOrder,
+      step_type: data.stepType,
+      position_id: data.positionId,
+      approval_role_id: data.approvalRoleId,
+      specific_user_id: data.specificUserId,
+      label: data.label,
+      is_required: data.isRequired,
+      skip_if_same_person: data.skipIfSamePerson,
+      skip_if_vacant: data.skipIfVacant,
+      conditions,
+      step_role_type: data.stepRoleType,
+      multi_approver_mode: data.multiApproverMode,
+      required_approver_count: data.requiredApproverCount,
+      deadline_days: data.deadlineDays,
+      deadline_auto_action: data.deadlineAutoAction,
+      remand_mode: data.remandMode,
+      allow_self_approval: data.allowSelfApproval,
+      editable_fields: editableFields,
+    });
+    return this.mapRouteStep(record);
+  }
+
+  async updateRouteStep(id: string, data: Partial<Omit<RouteStep, 'id' | 'createdAt' | 'updatedAt'>>): Promise<RouteStep> {
+    const fields: Record<string, unknown> = {};
+    if (data.stepOrder !== undefined) fields.step_order = data.stepOrder;
+    if (data.stepType !== undefined) fields.step_type = data.stepType;
+    if (data.positionId !== undefined) fields.position_id = data.positionId;
+    if (data.approvalRoleId !== undefined) fields.approval_role_id = data.approvalRoleId;
+    if (data.specificUserId !== undefined) fields.specific_user_id = data.specificUserId;
+    if (data.label !== undefined) fields.label = data.label;
+    if (data.isRequired !== undefined) fields.is_required = data.isRequired;
+    if (data.skipIfSamePerson !== undefined) fields.skip_if_same_person = data.skipIfSamePerson;
+    if (data.skipIfVacant !== undefined) fields.skip_if_vacant = data.skipIfVacant;
+    if (data.conditions !== undefined) fields.conditions = data.conditions ? JSON.stringify(data.conditions) : null;
+    if (data.stepRoleType !== undefined) fields.step_role_type = data.stepRoleType;
+    if (data.multiApproverMode !== undefined) fields.multi_approver_mode = data.multiApproverMode;
+    if (data.requiredApproverCount !== undefined) fields.required_approver_count = data.requiredApproverCount;
+    if (data.deadlineDays !== undefined) fields.deadline_days = data.deadlineDays;
+    if (data.deadlineAutoAction !== undefined) fields.deadline_auto_action = data.deadlineAutoAction;
+    if (data.remandMode !== undefined) fields.remand_mode = data.remandMode;
+    if (data.allowSelfApproval !== undefined) fields.allow_self_approval = data.allowSelfApproval;
+    if (data.editableFields !== undefined) fields.editable_fields = data.editableFields ? JSON.stringify(data.editableFields) : null;
+    const record = await this.client.updateRecord(TABLES.routeSteps, id, fields);
+    return this.mapRouteStep(record);
+  }
+
+  async deleteRouteStep(id: string): Promise<void> {
+    await this.client.deleteRecord(TABLES.routeSteps, id);
+  }
+
+  private mapRouteStep(record: LarkBaseRecord): RouteStep {
+    let conditions = null;
+    try {
+      const raw = record.fields.conditions;
+      if (raw && typeof raw === 'string') conditions = JSON.parse(raw);
+    } catch { /* ignore */ }
+
+    let editableFields = null;
+    try {
+      const raw = record.fields.editable_fields;
+      if (raw && typeof raw === 'string') editableFields = JSON.parse(raw);
+    } catch { /* ignore */ }
+
+    return {
+      id: record.record_id!,
+      routeMasterId: String(record.fields.route_master_id ?? ''),
+      stepOrder: Number(record.fields.step_order ?? 0),
+      stepType: String(record.fields.step_type ?? 'position') as RouteStep['stepType'],
+      positionId: record.fields.position_id ? String(record.fields.position_id) : null,
+      approvalRoleId: record.fields.approval_role_id ? String(record.fields.approval_role_id) : null,
+      specificUserId: record.fields.specific_user_id ? String(record.fields.specific_user_id) : null,
+      label: record.fields.label ? String(record.fields.label) : null,
+      isRequired: Boolean(record.fields.is_required),
+      skipIfSamePerson: Boolean(record.fields.skip_if_same_person),
+      skipIfVacant: Boolean(record.fields.skip_if_vacant),
+      conditions,
+      stepRoleType: (String(record.fields.step_role_type ?? 'approver') as RouteStep['stepRoleType']),
+      multiApproverMode: (String(record.fields.multi_approver_mode ?? 'single') as RouteStep['multiApproverMode']),
+      requiredApproverCount: record.fields.required_approver_count ? Number(record.fields.required_approver_count) : null,
+      deadlineDays: record.fields.deadline_days ? Number(record.fields.deadline_days) : null,
+      deadlineAutoAction: (String(record.fields.deadline_auto_action ?? 'none') as RouteStep['deadlineAutoAction']),
+      remandMode: (String(record.fields.remand_mode ?? 'require_reapproval') as RouteStep['remandMode']),
+      allowSelfApproval: Boolean(record.fields.allow_self_approval),
+      editableFields,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
+
+  // ==================== 代理設定 ====================
+
+  async getProxySettings(): Promise<ProxySetting[]> {
+    const records = await this.client.getAllRecords(TABLES.proxySettings);
+    return records.map(r => this.mapProxySetting(r));
+  }
+
+  async createProxySetting(data: Omit<ProxySetting, 'id' | 'createdAt' | 'updatedAt'>): Promise<ProxySetting> {
+    const record = await this.client.createRecord(TABLES.proxySettings, {
+      principal_user_id: data.principalUserId,
+      proxy_user_id: data.proxyUserId,
+      proxy_type: data.proxyType,
+      target_roles: JSON.stringify(data.targetRoles),
+      valid_from: data.validFrom.toISOString(),
+      valid_to: data.validTo ? data.validTo.toISOString() : null,
+      is_active: data.isActive,
+    });
+    return this.mapProxySetting(record);
+  }
+
+  async updateProxySetting(id: string, data: Partial<Omit<ProxySetting, 'id' | 'createdAt' | 'updatedAt'>>): Promise<ProxySetting> {
+    const fields: Record<string, unknown> = {};
+    if (data.principalUserId !== undefined) fields.principal_user_id = data.principalUserId;
+    if (data.proxyUserId !== undefined) fields.proxy_user_id = data.proxyUserId;
+    if (data.proxyType !== undefined) fields.proxy_type = data.proxyType;
+    if (data.targetRoles !== undefined) fields.target_roles = JSON.stringify(data.targetRoles);
+    if (data.validFrom !== undefined) fields.valid_from = data.validFrom.toISOString();
+    if (data.validTo !== undefined) fields.valid_to = data.validTo ? data.validTo.toISOString() : null;
+    if (data.isActive !== undefined) fields.is_active = data.isActive;
+    const record = await this.client.updateRecord(TABLES.proxySettings, id, fields);
+    return this.mapProxySetting(record);
+  }
+
+  async deleteProxySetting(id: string): Promise<void> {
+    await this.client.deleteRecord(TABLES.proxySettings, id);
+  }
+
+  private mapProxySetting(record: LarkBaseRecord): ProxySetting {
+    let targetRoles: string[] = [];
+    try {
+      const raw = record.fields.target_roles;
+      if (raw && typeof raw === 'string') targetRoles = JSON.parse(raw);
+    } catch { /* ignore */ }
+
+    return {
+      id: record.record_id!,
+      principalUserId: String(record.fields.principal_user_id ?? ''),
+      proxyUserId: String(record.fields.proxy_user_id ?? ''),
+      proxyType: String(record.fields.proxy_type ?? 'application') as ProxySetting['proxyType'],
+      targetRoles,
+      validFrom: new Date(String(record.fields.valid_from ?? '')),
+      validTo: record.fields.valid_to ? new Date(String(record.fields.valid_to)) : null,
+      isActive: Boolean(record.fields.is_active),
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
   }
 }

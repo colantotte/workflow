@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 import { initLarkClient, LarkBaseClient } from '../lark/client.js';
 import { ApprovalService, type DataStore } from '../services/approval.service.js';
 import type {
@@ -107,12 +108,15 @@ class LarkBaseDataStore implements DataStore {
     // ユーザー
     const users = await this.baseClient.getAllRecords(TABLES.users);
     for (const user of users) {
+      const role = String(user.fields.role ?? 'user');
       const u: User = {
         id: user.record_id!,
         larkUserId: String(user.fields.lark_user_id ?? ''),
         name: String(user.fields.name ?? ''),
         email: String(user.fields.email ?? ''),
+        role: (['admin', 'manager', 'user'].includes(role) ? role : 'user') as User['role'],
         isActive: Boolean(user.fields.is_active),
+        sealImageUrl: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -186,6 +190,22 @@ class LarkBaseDataStore implements DataStore {
         category: String(wf.fields.category ?? ''),
         formSchema,
         isActive: Boolean(wf.fields.is_active),
+        numberFormat: null,
+        nextNumber: 1,
+        allowWithdrawal: false,
+        allowPullUp: false,
+        allowReuse: false,
+        viewingRestriction: 'all',
+        viewingAllowedUsers: [],
+        allowProxyViewing: false,
+        pdfSettings: null,
+        notificationSettings: null,
+        subjectAutoInputMode: 'none',
+        subjectTemplate: null,
+        allowRouteChange: false,
+        routeChangeRoles: [],
+        proxyProcessingAutoNotify: false,
+        proxyProcessingTimeoutDays: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         steps: [],
@@ -226,6 +246,14 @@ class LarkBaseDataStore implements DataStore {
           skipIfSamePerson: Boolean(step.fields.skip_if_same_person),
           skipIfVacant: Boolean(step.fields.skip_if_vacant),
           conditions: null,
+          stepRoleType: 'approver',
+          multiApproverMode: 'single',
+          requiredApproverCount: null,
+          deadlineDays: null,
+          deadlineAutoAction: 'none',
+          remandMode: 'require_reapproval',
+          allowSelfApproval: false,
+          editableFields: null,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -386,6 +414,10 @@ async function testWorkflow() {
       currentStep: 1,
       submittedAt: new Date(),
       completedAt: null,
+      proxyApplicantId: null,
+      withdrawnAt: null,
+      routeMasterId: null,
+      docNumber: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -437,6 +469,10 @@ async function testWorkflow() {
       currentStep: 1,
       submittedAt: new Date(),
       completedAt: null,
+      proxyApplicantId: null,
+      withdrawnAt: null,
+      routeMasterId: null,
+      docNumber: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -489,6 +525,10 @@ async function testWorkflow() {
       currentStep: 1,
       submittedAt: new Date(),
       completedAt: null,
+      proxyApplicantId: null,
+      withdrawnAt: null,
+      routeMasterId: null,
+      docNumber: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -538,6 +578,10 @@ async function testWorkflow() {
       currentStep: 1,
       submittedAt: new Date(),
       completedAt: null,
+      proxyApplicantId: null,
+      withdrawnAt: null,
+      routeMasterId: null,
+      docNumber: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

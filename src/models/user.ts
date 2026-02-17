@@ -1,12 +1,22 @@
 import { z } from 'zod';
 
+// ユーザーロール
+export const UserRole = {
+  ADMIN: 'admin',       // 管理者 - 全機能アクセス可
+  MANAGER: 'manager',   // マネージャー - マスタ参照 + 承認管理
+  USER: 'user',         // 一般ユーザー - 基本機能のみ
+} as const;
+export type UserRoleType = typeof UserRole[keyof typeof UserRole];
+
 // ユーザー
 export const UserSchema = z.object({
   id: z.string().uuid(),
   larkUserId: z.string().min(1),
   name: z.string().min(1).max(100),
   email: z.string().email(),
+  role: z.enum(['admin', 'manager', 'user']).default('user'),
   isActive: z.boolean().default(true),
+  sealImageUrl: z.string().nullable().default(null),  // Phase 5: カスタム印影画像
   createdAt: z.date(),
   updatedAt: z.date(),
 });

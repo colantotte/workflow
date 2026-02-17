@@ -1,12 +1,11 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { z } from 'zod';
 import {
   CreateUserSchema,
   CreateUserPositionSchema,
-  CreateUserApprovalRoleSchema,
 } from '../models/index.js';
 import { getRepository } from '../repositories/lark-base.repository.js';
+import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 export const userRoutes = new Hono();
 
@@ -49,9 +48,11 @@ userRoutes.get('/:id', async (c) => {
   return c.json({ user });
 });
 
-// ユーザー作成
+// ユーザー作成（管理者のみ）
 userRoutes.post(
   '/',
+  requireAuth,
+  requireAdmin,
   zValidator('json', CreateUserSchema),
   async (c) => {
     const data = c.req.valid('json');
@@ -60,16 +61,16 @@ userRoutes.post(
   }
 );
 
-// ユーザー更新
-userRoutes.put('/:id', async (c) => {
+// ユーザー更新（管理者のみ）
+userRoutes.put('/:id', requireAuth, requireAdmin, async (c) => {
   const id = c.req.param('id');
   const data = await c.req.json();
   // TODO: Lark Baseを更新
   return c.json({ user: { id, ...data } });
 });
 
-// ユーザー削除（論理削除）
-userRoutes.delete('/:id', async (c) => {
+// ユーザー削除（管理者のみ）
+userRoutes.delete('/:id', requireAuth, requireAdmin, async (c) => {
   const id = c.req.param('id');
   // TODO: Lark Baseで isActive を false に
   return c.json({ success: true });
@@ -84,9 +85,11 @@ userRoutes.get('/:id/positions', async (c) => {
   return c.json({ positions: [] });
 });
 
-// 役職を付与
+// 役職を付与（管理者のみ）
 userRoutes.post(
   '/:id/positions',
+  requireAuth,
+  requireAdmin,
   zValidator('json', CreateUserPositionSchema.omit({ userId: true })),
   async (c) => {
     const userId = c.req.param('id');
@@ -96,8 +99,8 @@ userRoutes.post(
   }
 );
 
-// 役職を解除
-userRoutes.delete('/:id/positions/:positionId', async (c) => {
+// 役職を解除（管理者のみ）
+userRoutes.delete('/:id/positions/:positionId', requireAuth, requireAdmin, async (c) => {
   const userId = c.req.param('id');
   const positionId = c.req.param('positionId');
   // TODO: valid_to を設定
@@ -109,32 +112,50 @@ userRoutes.delete('/:id/positions/:positionId', async (c) => {
 // ユーザーの承認ロール一覧
 userRoutes.get('/:id/approval-roles', async (c) => {
   const userId = c.req.param('id');
-  // TODO: Lark Baseから取得
-  return c.json({ approvalRoles: [] });
+  const repo = getRepository();
+  const approvalRoles = await repo.getUserApprovalRoles(userId);
+  return c.json({ approvalRoles });
 });
 
-// 承認ロールを付与
-userRoutes.post(
-  '/:id/approval-roles',
-  zValidator('json', CreateUserApprovalRoleSchema.omit({ userId: true })),
-  async (c) => {
-    const userId = c.req.param('id');
-    const data = c.req.valid('json');
-    // TODO: Lark Baseに作成
-    return c.json({ approvalRole: { id: 'new-id', userId, ...data } }, 201);
-  }
-);
-
-// 承認ロールを解除
-userRoutes.delete('/:id/approval-roles/:roleId', async (c) => {
+// 承認ロールを付与（管理者のみ）
+userRoutes.post('/:id/approval-roles', requireAuth, requireAdmin, async (c) => {
   const userId = c.req.param('id');
+  const body = await c.req.json();
+  if (!body.approvalRoleName || typeof body.approvalRoleName !== 'string') {
+    return c.json({ error: '承認ロール名は必須です' }, 400);
+  }
+  const repo = getRepository();
+  const record = await repo.createUserApprovalRole({
+    userId,
+    approvalRoleName: body.approvalRoleName,
+    targetOrganizationCode: body.targetOrganizationCode || undefined,
+    validFrom: body.validFrom ? new Date(body.validFrom) : undefined,
+    validTo: body.validTo ? new Date(body.validTo) : undefined,
+  });
+  return c.json({ approvalRole: record }, 201);
+});
+
+// 承認ロールを解除（管理者のみ）
+userRoutes.delete('/:id/approval-roles/:roleId', requireAuth, requireAdmin, async (c) => {
   const roleId = c.req.param('roleId');
-  // TODO: valid_to を設定
+  const repo = getRepository();
+  await repo.deleteUserApprovalRole(roleId);
   return c.json({ success: true });
 });
 
-// Larkユーザーとの同期
-userRoutes.post('/sync-from-lark', async (c) => {
-  // TODO: Lark Contact APIからユーザーを同期
-  return c.json({ synced: 0, created: 0, updated: 0 });
+// Larkユーザーとの同期（管理者のみ）
+userRoutes.post('/sync-from-lark', requireAuth, requireAdmin, async (c) => {
+  const { ContactService } = await import('../services/contact.service.js');
+  const { syncAll } = await import('../services/sync.service.js');
+
+  const repo = getRepository();
+  const contactService = new ContactService();
+
+  const result = await syncAll(repo, contactService);
+
+  return c.json({
+    success: true,
+    departments: result.departments,
+    users: result.users,
+  });
 });

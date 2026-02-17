@@ -5,6 +5,7 @@ import {
   CreateApprovalStepSchema,
 } from '../models/index.js';
 import { getRepository } from '../repositories/lark-base.repository.js';
+import { requireAuth, requireManager } from '../middleware/auth.js';
 
 export const workflowRoutes = new Hono();
 
@@ -29,9 +30,11 @@ workflowRoutes.get('/:id', async (c) => {
   return c.json({ workflow });
 });
 
-// ワークフロー作成
+// ワークフロー作成（管理者/マネージャーのみ）
 workflowRoutes.post(
   '/',
+  requireAuth,
+  requireManager,
   zValidator('json', CreateWorkflowDefinitionSchema),
   async (c) => {
     const data = c.req.valid('json');
@@ -46,8 +49,8 @@ workflowRoutes.post(
   }
 );
 
-// ワークフロー更新
-workflowRoutes.put('/:id', async (c) => {
+// ワークフロー更新（管理者/マネージャーのみ）
+workflowRoutes.put('/:id', requireAuth, requireManager, async (c) => {
   const id = c.req.param('id');
   const data = await c.req.json();
   const repo = getRepository();
@@ -66,8 +69,8 @@ workflowRoutes.put('/:id', async (c) => {
   return c.json({ workflow });
 });
 
-// ワークフロー削除
-workflowRoutes.delete('/:id', async (c) => {
+// ワークフロー削除（管理者/マネージャーのみ）
+workflowRoutes.delete('/:id', requireAuth, requireManager, async (c) => {
   const id = c.req.param('id');
   const repo = getRepository();
 
@@ -97,9 +100,11 @@ workflowRoutes.get('/:id/steps', async (c) => {
   return c.json({ steps });
 });
 
-// ステップ追加
+// ステップ追加（管理者/マネージャーのみ）
 workflowRoutes.post(
   '/:id/steps',
+  requireAuth,
+  requireManager,
   zValidator('json', CreateApprovalStepSchema.omit({ workflowId: true })),
   async (c) => {
     const workflowId = c.req.param('id');
@@ -126,8 +131,8 @@ workflowRoutes.post(
   }
 );
 
-// ステップ更新
-workflowRoutes.put('/:id/steps/:stepId', async (c) => {
+// ステップ更新（管理者/マネージャーのみ）
+workflowRoutes.put('/:id/steps/:stepId', requireAuth, requireManager, async (c) => {
   const stepId = c.req.param('stepId');
   const data = await c.req.json();
   const repo = getRepository();
@@ -143,8 +148,8 @@ workflowRoutes.put('/:id/steps/:stepId', async (c) => {
   return c.json({ step });
 });
 
-// ステップ削除
-workflowRoutes.delete('/:id/steps/:stepId', async (c) => {
+// ステップ削除（管理者/マネージャーのみ）
+workflowRoutes.delete('/:id/steps/:stepId', requireAuth, requireManager, async (c) => {
   const stepId = c.req.param('stepId');
   const repo = getRepository();
 
@@ -152,8 +157,8 @@ workflowRoutes.delete('/:id/steps/:stepId', async (c) => {
   return c.json({ success: true });
 });
 
-// ステップ順序変更
-workflowRoutes.post('/:id/steps/reorder', async (c) => {
+// ステップ順序変更（管理者/マネージャーのみ）
+workflowRoutes.post('/:id/steps/reorder', requireAuth, requireManager, async (c) => {
   const workflowId = c.req.param('id');
   const { stepIds } = await c.req.json<{ stepIds: string[] }>();
   const repo = getRepository();
@@ -167,8 +172,8 @@ workflowRoutes.post('/:id/steps/reorder', async (c) => {
   return c.json({ success: true, steps });
 });
 
-// ワークフローをコピー
-workflowRoutes.post('/:id/copy', async (c) => {
+// ワークフローをコピー（管理者/マネージャーのみ）
+workflowRoutes.post('/:id/copy', requireAuth, requireManager, async (c) => {
   const id = c.req.param('id');
   const { name } = await c.req.json<{ name: string }>();
   const repo = getRepository();

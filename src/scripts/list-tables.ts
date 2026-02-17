@@ -1,7 +1,8 @@
 /**
  * Lark Base のテーブル一覧を取得
  */
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 import { initLarkClient, getLarkClient } from '../lark/client.js';
 
 const LARK_APP_ID = process.env.LARK_APP_ID ?? '';

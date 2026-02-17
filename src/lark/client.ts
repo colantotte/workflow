@@ -133,6 +133,10 @@ export class LarkBaseClient {
       data: { fields: fields as Record<string, string | number | boolean> },
     });
 
+    if (response.code !== 0) {
+      throw new Error(`Lark Base createRecord failed: code=${response.code}, msg=${response.msg}`);
+    }
+
     return response.data?.record as LarkBaseRecord;
   }
 
@@ -174,6 +178,10 @@ export class LarkBaseClient {
       },
       data: { fields: fields as Record<string, string | number | boolean> },
     });
+
+    if (response.code !== 0) {
+      throw new Error(`Lark Base updateRecord failed: code=${response.code}, msg=${response.msg}`);
+    }
 
     return response.data?.record as LarkBaseRecord;
   }

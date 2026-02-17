@@ -124,6 +124,7 @@ authRoutes.post('/callback', async (c) => {
         larkUserId: user.larkUserId,
         name: user.name,
         email: user.email,
+        role: user.role,
       },
       larkUser: {
         userId: userId,
@@ -155,7 +156,15 @@ authRoutes.get('/me', async (c) => {
       return c.json({ error: 'User not found' }, 404);
     }
 
-    return c.json({ user });
+    return c.json({
+      user: {
+        id: user.id,
+        larkUserId: user.larkUserId,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    });
   } catch (err) {
     console.error('Get me error:', err);
     return c.json({ error: 'Failed to get user info' }, 500);

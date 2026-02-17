@@ -21,7 +21,10 @@
   <nav class="tabs">
     <button class="tab active" data-tab="requests">申請一覧</button>
     <button class="tab" data-tab="approvals">承認待ち</button>
+    <button class="tab" data-tab="routeMasters">経路マスタ</button>
     <button class="tab" data-tab="workflows">ワークフロー</button>
+    <button class="tab" data-tab="approvalRoles">承認ロール</button>
+    <button class="tab" data-tab="importExport">インポート</button>
   </nav>
 
   <main class="main">
@@ -39,6 +42,8 @@
           <option value="approved">承認完了</option>
           <option value="rejected">却下</option>
           <option value="remanded">差戻し</option>
+          <option value="withdrawn">取り下げ</option>
+          <option value="conditional_approve_wait">コメント待ち</option>
         </select>
       </div>
       <div id="requestsList" class="list"></div>
@@ -56,8 +61,242 @@
     <section id="workflows" class="tab-content">
       <div class="section-header">
         <h2>ワークフロー一覧</h2>
+        <button id="createWorkflowBtn" class="btn btn-primary" onclick="showNewWorkflowModal()">+ 新規ワークフロー</button>
       </div>
       <div id="workflowsList" class="list"></div>
+    </section>
+
+    <!-- 経路マスタタブ -->
+    <section id="routeMasters" class="tab-content">
+      <div class="section-header">
+        <h2>経路マスタ</h2>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn" onclick="exportAllRoutesCsv()">CSV一括エクスポート</button>
+          <button class="btn" onclick="showBulkImportRouteModal()">CSV一括インポート</button>
+          <button class="btn btn-primary" onclick="showNewRouteMasterModal()">+ 新規経路</button>
+        </div>
+      </div>
+      <div class="filters">
+        <select id="routeMasterWorkflowFilter" onchange="loadRouteMasters()">
+          <option value="">全ワークフロー</option>
+        </select>
+      </div>
+      <div id="routeMastersList" class="list"></div>
+    </section>
+
+    <!-- 一括CSVインポートモーダル -->
+    <div id="bulkRouteImportModal" class="modal">
+      <div class="modal-content" style="max-width:700px;">
+        <div class="modal-header">
+          <h3>経路マスタ 一括CSVインポート</h3>
+          <button class="close" onclick="closeModal('bulkRouteImportModal')">&times;</button>
+        </div>
+        <div style="padding:16px;">
+          <p style="margin-bottom:12px;color:#666;">
+            全経路マスタとステップを1つのCSVで管理できます。<br>
+            同名＋同ワークフローの経路が既に存在する場合、ステップを上書き更新します。
+          </p>
+          <div style="margin-bottom:16px;display:flex;gap:8px;">
+            <a href="/api/route-masters/export-all/template" class="btn btn-sm">テンプレートCSVダウンロード</a>
+            <button class="btn btn-sm" onclick="exportAllRoutesCsv()">現在のデータをエクスポート</button>
+          </div>
+          <div class="form-group">
+            <label>CSVファイル選択</label>
+            <input type="file" id="bulkRouteImportFile" accept=".csv" onchange="previewBulkRouteImport(this)">
+          </div>
+          <div id="bulkRouteImportPreview" style="display:none;">
+            <h4 style="margin-bottom:8px;">プレビュー</h4>
+            <div id="bulkRouteImportPreviewContent" style="max-height:300px;overflow:auto;border:1px solid #ddd;border-radius:4px;font-size:13px;"></div>
+          </div>
+          <div id="bulkRouteImportResult" class="import-result" style="margin-top:12px;"></div>
+          <div class="form-actions" style="margin-top:16px;">
+            <button class="btn" onclick="closeModal('bulkRouteImportModal')">キャンセル</button>
+            <button class="btn btn-primary" id="bulkRouteImportBtn" onclick="executeBulkRouteImport()" disabled>インポート実行</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 経路マスタ作成モーダル -->
+    <div id="newRouteMasterModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="routeMasterModalTitle">経路マスタ作成</h3>
+          <button class="close" onclick="closeModal('newRouteMasterModal')">&times;</button>
+        </div>
+        <form id="newRouteMasterForm" onsubmit="saveRouteMaster(event)">
+          <input type="hidden" id="routeMasterEditId">
+          <div class="form-group">
+            <label>名称 <span style="color: var(--danger);">*</span></label>
+            <input type="text" id="routeMasterName" required placeholder="経路名を入力">
+          </div>
+          <div class="form-group">
+            <label>説明</label>
+            <textarea id="routeMasterDescription" rows="2" placeholder="経路の説明"></textarea>
+          </div>
+          <div class="form-group">
+            <label>ワークフロー <span style="color: var(--danger);">*</span></label>
+            <select id="routeMasterWorkflow" required>
+              <option value="">選択してください</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>経路タイプ</label>
+            <select id="routeMasterType">
+              <option value="basic">基本</option>
+              <option value="by_position">役職別</option>
+              <option value="by_department">部署別</option>
+              <option value="by_individual">個人別</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>優先度（1-100）</label>
+            <input type="number" id="routeMasterPriority" value="1" min="1" max="100">
+          </div>
+          <div class="form-group">
+            <label><input type="checkbox" id="routeMasterStandard"> 標準経路</label>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn" onclick="closeModal('newRouteMasterModal')">キャンセル</button>
+            <button type="submit" class="btn btn-primary">保存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- 経路マスタ詳細モーダル -->
+    <div id="routeMasterDetailModal" class="modal">
+      <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+          <h3 id="routeMasterDetailTitle">経路マスタ詳細</h3>
+          <button class="close" onclick="closeModal('routeMasterDetailModal')">&times;</button>
+        </div>
+        <div id="routeMasterDetailContent"></div>
+      </div>
+    </div>
+
+    <!-- 承認ロールタブ -->
+    <section id="approvalRoles" class="tab-content">
+      <div class="section-header">
+        <h2>承認ロール管理</h2>
+        <button class="btn btn-primary" onclick="showNewApprovalRoleModal()">+ 新規承認ロール</button>
+      </div>
+      <div id="approvalRolesList" class="list"></div>
+    </section>
+
+    <!-- 承認ロール作成/編集モーダル -->
+    <div id="newApprovalRoleModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="approvalRoleModalTitle">承認ロール作成</h3>
+          <button class="close" onclick="closeModal('newApprovalRoleModal')">&times;</button>
+        </div>
+        <form id="newApprovalRoleForm" onsubmit="saveApprovalRole(event)">
+          <input type="hidden" id="approvalRoleEditId">
+          <div class="form-group">
+            <label>ロール名 <span style="color: var(--danger);">*</span></label>
+            <input type="text" id="approvalRoleName" required placeholder="例: 経理承認者">
+          </div>
+          <div class="form-group">
+            <label>説明</label>
+            <textarea id="approvalRoleDescription" rows="2" placeholder="ロールの説明"></textarea>
+          </div>
+          <div class="form-group">
+            <label><input type="checkbox" id="approvalRoleIsActive" checked> 有効</label>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn" onclick="closeModal('newApprovalRoleModal')">キャンセル</button>
+            <button type="submit" class="btn btn-primary">保存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- 承認ロール詳細モーダル -->
+    <div id="approvalRoleDetailModal" class="modal">
+      <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+          <h3 id="approvalRoleDetailTitle">承認ロール詳細</h3>
+          <button class="close" onclick="closeModal('approvalRoleDetailModal')">&times;</button>
+        </div>
+        <div id="approvalRoleDetailContent"></div>
+      </div>
+    </div>
+
+    <!-- メンバー追加モーダル -->
+    <div id="addApprovalRoleMemberModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>メンバー追加</h3>
+          <button class="close" onclick="closeModal('addApprovalRoleMemberModal')">&times;</button>
+        </div>
+        <form id="addApprovalRoleMemberForm" onsubmit="saveApprovalRoleMember(event)">
+          <input type="hidden" id="memberRoleName">
+          <div class="form-group">
+            <label>ユーザー <span style="color: var(--danger);">*</span></label>
+            <select id="memberUserId" required>
+              <option value="">選択してください</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>対象組織コード</label>
+            <input type="text" id="memberTargetOrg" placeholder="空欄 = 全組織対象">
+          </div>
+          <div class="form-group">
+            <label>有効開始日</label>
+            <input type="date" id="memberValidFrom">
+          </div>
+          <div class="form-group">
+            <label>有効終了日</label>
+            <input type="date" id="memberValidTo">
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn" onclick="closeModal('addApprovalRoleMemberModal')">キャンセル</button>
+            <button type="submit" class="btn btn-primary">追加</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- インポートタブ -->
+    <section id="importExport" class="tab-content">
+      <div class="section-header">
+        <h2>データインポート</h2>
+      </div>
+      <div class="import-section">
+        <div class="import-card">
+          <h3>組織マスタ インポート</h3>
+          <p>CSV形式で組織データを一括登録します</p>
+          <div class="import-actions">
+            <a href="/api/import/templates/organizations" class="btn btn-sm">テンプレートDL</a>
+            <label class="btn btn-sm btn-primary">
+              CSVファイル選択
+              <input type="file" accept=".csv" onchange="importCSV('organizations', this)" style="display:none;">
+            </label>
+          </div>
+          <div id="importOrganizationsResult" class="import-result"></div>
+        </div>
+        <div class="import-card">
+          <h3>ユーザー インポート</h3>
+          <p>CSV形式でユーザーデータを一括登録します</p>
+          <div class="import-actions">
+            <a href="/api/import/templates/users" class="btn btn-sm">テンプレートDL</a>
+            <label class="btn btn-sm btn-primary">
+              CSVファイル選択
+              <input type="file" accept=".csv" onchange="importCSV('users', this)" style="display:none;">
+            </label>
+          </div>
+          <div id="importUsersResult" class="import-result"></div>
+        </div>
+        <div class="import-card">
+          <h3>Lark メンバー同期</h3>
+          <p>Lark管理コンソールのメンバー・部署情報を自動同期します</p>
+          <div class="import-actions">
+            <button class="btn btn-sm btn-primary" id="syncFromLarkBtn" onclick="syncFromLark(this)">同期実行</button>
+          </div>
+          <div id="syncFromLarkResult" class="import-result"></div>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -79,9 +318,7 @@
           <label for="requestTitle">件名 <span style="color: var(--danger);">*</span></label>
           <input type="text" id="requestTitle" required maxlength="200" placeholder="申請の件名を入力">
         </div>
-        <div id="dynamicFormFields">
-          <!-- Dynamic form fields will be rendered here -->
-        </div>
+        <div id="dynamicFormFields"></div>
         <div id="approvalRoutePreview" class="route-preview" style="display:none;">
           <h4>承認ルート（プレビュー）</h4>
           <div id="routeSteps"></div>
@@ -123,6 +360,247 @@
         <div class="form-actions">
           <button type="button" class="btn" onclick="closeModal('approvalActionModal')">キャンセル</button>
           <button type="submit" class="btn btn-primary" id="actionSubmitBtn">実行</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 新規ワークフローモーダル -->
+  <div id="newWorkflowModal" class="modal">
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3 id="workflowModalTitle">新規ワークフロー</h3>
+        <button class="close" onclick="closeModal('newWorkflowModal')">&times;</button>
+      </div>
+      <form id="workflowForm" onsubmit="saveWorkflow(event)">
+        <input type="hidden" id="editWorkflowId" value="">
+        <div class="form-row">
+          <div class="form-group form-group-half">
+            <label>ワークフロー名 <span style="color: var(--danger);">*</span></label>
+            <input type="text" id="wfName" required maxlength="200">
+          </div>
+          <div class="form-group form-group-half">
+            <label>カテゴリ</label>
+            <select id="wfCategory">
+              <option value="一般">一般</option>
+              <option value="経費精算">経費精算</option>
+              <option value="稟議">稟議</option>
+              <option value="休暇申請">休暇申請</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>説明</label>
+          <textarea id="wfDescription" rows="2"></textarea>
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="wfIsActive" checked> 有効</label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" onclick="closeModal('newWorkflowModal')">キャンセル</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ワークフロー詳細・ステップ管理モーダル -->
+  <div id="workflowDetailModal" class="modal">
+    <div class="modal-content modal-xlarge">
+      <div class="modal-header">
+        <h3 id="workflowDetailTitle">ワークフロー詳細</h3>
+        <button class="close" onclick="closeModal('workflowDetailModal')">&times;</button>
+      </div>
+      <div id="workflowDetailContent"></div>
+    </div>
+  </div>
+
+  <!-- ステップ追加モーダル -->
+  <div id="addStepModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>承認ステップ追加</h3>
+        <button class="close" onclick="closeModal('addStepModal')">&times;</button>
+      </div>
+      <form id="addStepForm" onsubmit="saveStep(event)">
+        <input type="hidden" id="stepWorkflowId">
+        <div class="form-group">
+          <label>ステップ順序 <span style="color: var(--danger);">*</span></label>
+          <input type="number" id="stepOrder" required min="1" value="1">
+        </div>
+        <div class="form-group">
+          <label>承認タイプ <span style="color: var(--danger);">*</span></label>
+          <select id="stepType" required onchange="onStepTypeChange()">
+            <option value="position">役職指定</option>
+            <option value="role">承認ロール指定</option>
+            <option value="specific_user">特定ユーザー指定</option>
+          </select>
+        </div>
+        <div class="form-group" id="stepPositionGroup">
+          <label>役職名</label>
+          <input type="text" id="stepPositionName" placeholder="例: 課長, 部長">
+        </div>
+        <div class="form-group" id="stepRoleGroup" style="display:none;">
+          <label>承認ロール名</label>
+          <select id="stepRoleName">
+            <option value="">選択してください</option>
+          </select>
+        </div>
+        <div class="form-group" id="stepUserGroup" style="display:none;">
+          <label>ユーザー</label>
+          <select id="stepUserId">
+            <option value="">選択してください</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>ラベル</label>
+          <input type="text" id="stepLabel" placeholder="例: 課長承認">
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="stepIsRequired" checked> 必須ステップ</label>
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="stepSkipSamePerson"> 同一人物の場合スキップ</label>
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="stepSkipVacant"> 空席の場合スキップ</label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" onclick="closeModal('addStepModal')">キャンセル</button>
+          <button type="submit" class="btn btn-primary">追加</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 差戻モード選択モーダル -->
+  <div id="remandModeModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>差戻し設定</h3>
+        <button class="close" onclick="closeModal('remandModeModal')">&times;</button>
+      </div>
+      <form id="remandModeForm" onsubmit="submitRemandWithMode(event)">
+        <input type="hidden" id="remandRequestId">
+        <div class="form-group">
+          <label>差戻しモード</label>
+          <select id="remandModeSelect" onchange="onRemandModeChange()">
+            <option value="require_reapproval">申請者に戻す（経路最初から再承認）</option>
+            <option value="choose_at_remand">差戻先を指定する</option>
+            <option value="no_reapproval">直前のステップに戻す（再承認不要）</option>
+          </select>
+        </div>
+        <div class="form-group" id="remandTargetStepGroup" style="display:none;">
+          <label>差戻先ステップ</label>
+          <select id="remandTargetStep"></select>
+        </div>
+        <div class="form-group">
+          <label>コメント <span style="color: var(--danger);">*</span></label>
+          <textarea id="remandComment" rows="3" required placeholder="差戻し理由を入力してください"></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" onclick="closeModal('remandModeModal')">キャンセル</button>
+          <button type="submit" class="btn btn-warning">差戻し</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 引き上げ確認モーダル -->
+  <div id="pullUpModal" class="modal">
+    <div class="modal-content" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3>引き上げ承認</h3>
+        <button class="close" onclick="closeModal('pullUpModal')">&times;</button>
+      </div>
+      <div class="form-group">
+        <p>この申請を引き上げて承認します。中間の承認ステップは自動的に承認扱いとなります。</p>
+        <p>よろしいですか？</p>
+      </div>
+      <input type="hidden" id="pullUpRequestId">
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closeModal('pullUpModal')">キャンセル</button>
+        <button type="button" class="btn btn-primary" onclick="executePullUp()">引き上げ承認</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 取り下げ確認モーダル -->
+  <div id="withdrawModal" class="modal">
+    <div class="modal-content" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3>取り下げ確認</h3>
+        <button class="close" onclick="closeModal('withdrawModal')">&times;</button>
+      </div>
+      <div class="form-group">
+        <p>この申請を取り下げます。取り下げ後は承認プロセスが停止します。</p>
+        <p>よろしいですか？</p>
+      </div>
+      <input type="hidden" id="withdrawRequestId">
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closeModal('withdrawModal')">キャンセル</button>
+        <button type="button" class="btn btn-danger" onclick="executeWithdraw()">取り下げ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 条件付き承認モーダル -->
+  <div id="conditionalApproveModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>条件付き承認</h3>
+        <button class="close" onclick="closeModal('conditionalApproveModal')">&times;</button>
+      </div>
+      <form id="conditionalApproveForm" onsubmit="submitConditionalApprove(event)">
+        <input type="hidden" id="conditionalApproveRequestId">
+        <div class="form-group">
+          <p>通過済みの承認者にコメントを要求します。コメントが届くまで他の承認者はアクションできなくなります。</p>
+        </div>
+        <div class="form-group">
+          <label>コメント要求先ステップ</label>
+          <div id="conditionalApproveTargetSteps"></div>
+        </div>
+        <div class="form-group">
+          <label>コメント</label>
+          <textarea id="conditionalApproveComment" rows="3" placeholder="条件付き承認のコメント（任意）"></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" onclick="closeModal('conditionalApproveModal')">キャンセル</button>
+          <button type="submit" class="btn btn-primary">条件付き承認</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 経路変更モーダル -->
+  <div id="routeChangeModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>経路変更</h3>
+        <button class="close" onclick="closeModal('routeChangeModal')">&times;</button>
+      </div>
+      <form id="routeChangeForm" onsubmit="submitRouteChange(event)">
+        <input type="hidden" id="routeChangeRequestId">
+        <div class="form-group">
+          <p>現在のステップ以降の承認経路を変更します。</p>
+        </div>
+        <div class="form-group">
+          <label>追加する承認者</label>
+          <select id="routeChangeUser">
+            <option value="">ユーザーを選択...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>ラベル</label>
+          <input type="text" id="routeChangeLabel" placeholder="例: 追加承認">
+        </div>
+        <div class="form-group">
+          <label>コメント</label>
+          <textarea id="routeChangeComment" rows="2" placeholder="経路変更理由（任意）"></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" onclick="closeModal('routeChangeModal')">キャンセル</button>
+          <button type="submit" class="btn btn-primary">経路変更</button>
         </div>
       </form>
     </div>

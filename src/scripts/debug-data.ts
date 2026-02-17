@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 import { initLarkClient, LarkBaseClient } from '../lark/client.js';
 
 const LARK_APP_ID = process.env.LARK_APP_ID ?? '';

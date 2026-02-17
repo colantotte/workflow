@@ -6,9 +6,12 @@ import type {
   Position,
   ApprovalStep,
   WorkflowWithSteps,
+  WorkflowDefinition,
   Request,
   ApprovalHistory,
   ResolvedApprovalStep,
+  ApproverStatus,
+  StepApprovalStatus,
   SkipReason,
   StepCondition,
 } from '../models/index.js';
@@ -33,6 +36,8 @@ export interface DataStore {
   ): Promise<User[]>;
   getWorkflowWithSteps(workflowId: string): Promise<WorkflowWithSteps | null>;
   getApprovalHistory(requestId: string): Promise<ApprovalHistory[]>;
+  // Phase 1: ステップ承認状況
+  getStepApprovalStatuses?(requestId: string, stepOrder?: number): Promise<StepApprovalStatus[]>;
 }
 
 export interface ApprovalContext {
@@ -373,5 +378,263 @@ export class ApprovalService {
         step.status === 'skipped' ||
         (!step.approver && step.skipReason === 'vacant')
     );
+  }
+
+  /**
+   * 複数承認者のステップの解決状態を評価する
+   * returns: 'pending' | 'approved' | 'rejected'
+   */
+  resolveMultiApproverStatus(
+    statuses: StepApprovalStatus[],
+    mode: string,
+    requiredCount: number | null
+  ): 'pending' | 'approved' | 'rejected' {
+    if (statuses.length === 0) return 'pending';
+
+    const approved = statuses.filter((s) => s.status === 'approved');
+    const rejected = statuses.filter((s) => s.status === 'rejected');
+    const pending = statuses.filter((s) => s.status === 'pending');
+
+    switch (mode) {
+      case 'single':
+        // 1人でも承認すればOK
+        if (approved.length > 0) return 'approved';
+        if (rejected.length > 0 && pending.length === 0) return 'rejected';
+        return 'pending';
+
+      case 'all':
+        // 全員承認が必要
+        if (rejected.length > 0) return 'rejected';
+        if (pending.length === 0 && approved.length === statuses.length) return 'approved';
+        return 'pending';
+
+      case 'group':
+        // N人以上の承認が必要
+        const required = requiredCount ?? statuses.length;
+        if (approved.length >= required) return 'approved';
+        // 残りの承認者全員が承認しても足りない場合は却下
+        if (approved.length + pending.length < required) return 'rejected';
+        return 'pending';
+
+      case 'notify':
+        // 通知のみ（常に承認扱い）
+        return 'approved';
+
+      default:
+        return 'pending';
+    }
+  }
+
+  /**
+   * 引き上げ可否判定
+   * 上位の承認者（後のステップ）が現在のステップを引き上げ可能か
+   */
+  async canPullUp(
+    userId: string,
+    context: ApprovalContext
+  ): Promise<boolean> {
+    if (!context.workflow.allowPullUp) return false;
+
+    const route = await this.resolveApprovalRoute(context);
+    const currentStep = context.request.currentStep;
+
+    // ユーザーが後のステップの承認者であるか確認
+    for (const step of route) {
+      if (step.stepOrder > currentStep && step.approver?.id === userId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 差戻処理（3モード対応）
+   * returns: 差戻先のステップ番号
+   */
+  processRemandTarget(
+    remandMode: string,
+    currentStep: number,
+    targetStep?: number
+  ): number {
+    switch (remandMode) {
+      case 'require_reapproval':
+        // 経路最初（申請者）に戻す
+        return 0;
+
+      case 'choose_at_remand':
+        // 差戻時に選択された先に戻す
+        return targetStep ?? 0;
+
+      case 'no_reapproval':
+        // 差戻先から再開（直前のステップに戻す）
+        return Math.max(0, currentStep - 1);
+
+      default:
+        return 0;
+    }
+  }
+
+  /**
+   * 自動採番を生成する
+   */
+  generateDocNumber(format: string, nextNumber: number): string {
+    const now = new Date();
+    let result = format;
+
+    // %Y → 年
+    result = result.replace(/%Y/g, String(now.getFullYear()));
+    // %m → 月（ゼロ埋め）
+    result = result.replace(/%m/g, String(now.getMonth() + 1).padStart(2, '0'));
+    // %d → 日
+    result = result.replace(/%d/g, String(now.getDate()).padStart(2, '0'));
+
+    // %N%N%N... → 連番（%Nの数でゼロ埋め桁数を決定）
+    const nMatch = result.match(/(%N)+/);
+    if (nMatch) {
+      const digits = nMatch[0].length / 2; // %N は2文字
+      const numStr = String(nextNumber).padStart(digits, '0');
+      result = result.replace(/(%N)+/, numStr);
+    }
+
+    return result;
+  }
+
+  /**
+   * 閲覧権限チェック
+   */
+  async canViewRequest(
+    userId: string,
+    request: Request,
+    workflow: WorkflowDefinition,
+    context?: ApprovalContext
+  ): Promise<boolean> {
+    const restriction = workflow.viewingRestriction ?? 'all';
+
+    switch (restriction) {
+      case 'all':
+        return true;
+
+      case 'route_members':
+        // 申請者
+        if (request.applicantId === userId) return true;
+        // 経路メンバー
+        if (context) {
+          const route = await this.resolveApprovalRoute(context);
+          return route.some((step) => step.approver?.id === userId);
+        }
+        return false;
+
+      case 'department':
+        // 同一部署チェック（簡易版）
+        if (request.applicantId === userId) return true;
+        // TODO: 部署チェック実装
+        return true;
+
+      case 'specified_users':
+        if (request.applicantId === userId) return true;
+        return (workflow.viewingAllowedUsers ?? []).includes(userId);
+
+      default:
+        return true;
+    }
+  }
+
+  /**
+   * ステップの複数承認者を検索する
+   */
+  async findApprovers(
+    step: ApprovalStep,
+    context: ApprovalContext
+  ): Promise<User[]> {
+    switch (step.stepType) {
+      case 'position':
+        if (!step.positionId) return [];
+        return this.dataStore.getUsersByOrganizationAndPosition(
+          context.applicantOrganization.id,
+          step.positionId,
+          context.currentDate
+        );
+
+      case 'role':
+        if (!step.approvalRoleId) return [];
+        return this.dataStore.getUsersByApprovalRole(
+          step.approvalRoleId,
+          context.applicantOrganization.id,
+          context.currentDate
+        );
+
+      case 'specific_user':
+        if (!step.specificUserId) return [];
+        const user = await this.dataStore.getUser(step.specificUserId);
+        return user ? [user] : [];
+
+      default:
+        return [];
+    }
+  }
+
+  /**
+   * ワークフローに対して最適な経路マスタを選択する
+   * 優先度: individual(4) > department(3) > position(2) > basic(1)
+   */
+  selectRoute(
+    routeMasters: Array<{ routeType: string; priority: number; targetPositionId: string | null; targetDepartmentId: string | null; targetUserId: string | null; isActive: boolean; conditions: Array<{ field: string; operator: string; value: string | number | boolean }> | null }>,
+    applicantId: string,
+    applicantPositionId: string | null,
+    applicantOrganizationId: string,
+    formContent?: Record<string, unknown>
+  ): typeof routeMasters[number] | null {
+    const active = routeMasters.filter(r => r.isActive);
+    if (active.length === 0) return null;
+
+    // マッチするルートをフィルタ
+    const matched = active.filter(r => {
+      switch (r.routeType) {
+        case 'by_individual':
+          return r.targetUserId === applicantId;
+        case 'by_department':
+          return r.targetDepartmentId === applicantOrganizationId;
+        case 'by_position':
+          return r.targetPositionId === applicantPositionId;
+        case 'basic':
+          return true;
+        default:
+          return false;
+      }
+      // 条件チェック（formContentベース）
+    }).filter(r => {
+      if (!r.conditions || r.conditions.length === 0) return true;
+      if (!formContent) return false;
+      return r.conditions.every(cond => {
+        const val = formContent[cond.field];
+        return this.evaluateConditionValue(val, cond.operator, cond.value);
+      });
+    });
+
+    if (matched.length === 0) return null;
+
+    // 優先度でソート（高い優先度が先）
+    matched.sort((a, b) => b.priority - a.priority);
+    return matched[0];
+  }
+
+  private evaluateConditionValue(
+    actual: unknown,
+    operator: string,
+    expected: string | number | boolean
+  ): boolean {
+    if (actual === undefined || actual === null) return false;
+    const numActual = typeof actual === 'number' ? actual : Number(actual);
+    const numExpected = typeof expected === 'number' ? expected : Number(expected);
+    switch (operator) {
+      case 'eq': return actual === expected || numActual === numExpected;
+      case 'neq': return actual !== expected && numActual !== numExpected;
+      case 'gt': return numActual > numExpected;
+      case 'gte': return numActual >= numExpected;
+      case 'lt': return numActual < numExpected;
+      case 'lte': return numActual <= numExpected;
+      case 'contains': return String(actual).includes(String(expected));
+      default: return false;
+    }
   }
 }

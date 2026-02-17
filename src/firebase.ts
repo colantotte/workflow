@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 import { onRequest } from 'firebase-functions/v2/https';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';

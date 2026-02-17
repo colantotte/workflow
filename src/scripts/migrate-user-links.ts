@@ -1,7 +1,8 @@
 /**
  * マイグレーションスクリプト: user_positions と user_approval_roles のユーザー参照をリンクフィールドに変更
  */
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 import { initLarkClient, getLarkClient } from '../lark/client.js';
 
 const LARK_APP_ID = process.env.LARK_APP_ID ?? '';
