@@ -38,7 +38,7 @@ async function getTenantAccessToken(): Promise<string> {
     appSecret: process.env.LARK_APP_SECRET || '',
   });
 
-  const tokenManager = (client as Record<string, unknown>).tokenManager as {
+  const tokenManager = (client as unknown as Record<string, unknown>).tokenManager as {
     getTenantAccessToken: () => Promise<string>;
   };
 
